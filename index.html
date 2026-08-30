@@ -15,8 +15,8 @@
 
   .tabrow{flex:0 0 auto;display:flex;align-items:center;border-bottom:1px solid #c9c9c9;flex-wrap:wrap;}
   .tabbar{display:flex;flex:1;justify-content:space-between;flex-wrap:wrap;}
-  .tabgroup{display:flex;gap:2px;flex-wrap:wrap;}
-  .pastdays-inline{font-size:11px;color:#5a6472;display:flex;align-items:center;gap:5px;margin-left:14px;padding:6px 4px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .tabgroup{display:flex;gap:2px;flex-wrap:wrap;align-items:center;}
+  .pastdays-inline{font-size:12px;font-family:inherit;color:#5a6472;display:flex;align-items:center;gap:5px;margin-left:14px;padding:6px 4px;cursor:pointer;user-select:none;white-space:nowrap;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
 
@@ -30,7 +30,7 @@
   .sheetscroll{overflow:auto;border:1px solid #9aa0a6;background:#f7fafb;width:100%;flex:1;min-height:0;}
   #sheet{display:grid;font-size:11px;position:relative;}
   .cell{border:1px solid #d3d3d3;display:flex;align-items:stretch;position:relative;background:#fbfdfe;min-height:19px;}
-  .lblnum,.lblname{position:sticky;z-index:3;background:#eef4f6;padding:0 3px;display:flex;align-items:center;border-right:1px solid #9aa0a6;font-size:10.5px;}
+  .lblnum,.lblname{position:sticky;z-index:3;background:#eef4f6;padding:0 3px;display:flex;align-items:center;border-right:1px solid #9aa0a6;font-size:10.5px;transform:translateZ(0);will-change:transform;}
   .lblnum{left:0;justify-content:center;font-weight:600;}
   .lblname{left:34px;justify-content:space-between;gap:3px;}
   .idname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;font-size:11px;}
@@ -56,8 +56,12 @@
   .subhead-inner{position:sticky;left:0;display:inline-block;color:#3c3c3c;font-size:10.5px;font-weight:600;padding:2px 6px;white-space:nowrap;}
   .blockhead{grid-column:1/-1;min-height:19px;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
-  .blockhead input.btitle{font-size:11px;font-weight:600;border:none;background:transparent;color:#1c1f22;padding:0 2px;width:320px;flex:0 0 auto;}
-  .blockhead input.bmeta{font-size:10.5px;border:none;background:transparent;color:#5a6472;padding:0 2px;width:230px;flex:0 0 auto;}
+  .blockhead input.btitle{font-size:11px;font-weight:600;border:none;background:transparent;color:#1c1f22;padding:0 2px;width:250px;flex:0 0 auto;}
+  .blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum{font-size:10.5px;border:none;background:transparent;color:#3c4650;padding:0 2px;flex:0 0 auto;border-left:1px solid rgba(0,0,0,.12);}
+  .blockhead input.bpm{width:100px;}
+  .blockhead input.bphase{width:120px;}
+  .blockhead input.bnum{width:90px;}
+  .blockhead input.bmeta{font-size:10.5px;border:none;background:transparent;color:#5a6472;padding:0 2px;width:160px;flex:0 0 auto;border-left:1px solid rgba(0,0,0,.12);}
   .blockhead input:focus{outline:1px solid #4a86c5;}
   .blockhead .del{opacity:.5;flex:0 0 auto;}
 
@@ -571,8 +575,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     activeBlocks.forEach((block,blockIndex)=>{
       const band = blockBand(blockIndex);
       html += '<div class="blockhead" style="background:'+reg.tint+'"><div class="blockhead-inner">'
-        + '<input class="btitle" value="'+escAttr(block.title)+'" data-field="blocktitle|'+block.id+'">'
-        + '<input class="bmeta" value="'+escAttr(block.meta||'')+'" data-field="blockmeta|'+block.id+'" placeholder="PM / phase manager">'
+        + '<input class="btitle" value="'+escAttr(block.title)+'" data-field="blocktitle|'+block.id+'" placeholder="Project name">'
+        + '<input class="bpm" value="'+escAttr(block.pm||'')+'" data-field="blockpm|'+block.id+'" placeholder="PM">'
+        + '<input class="bphase" value="'+escAttr(block.phaseManager||'')+'" data-field="blockphase|'+block.id+'" placeholder="Phase manager">'
+        + '<input class="bnum" value="'+escAttr(block.projectNumber||'')+'" data-field="blocknum|'+block.id+'" placeholder="Project #">'
+        + '<input class="bmeta" value="'+escAttr(block.meta||'')+'" data-field="blockmeta|'+block.id+'" placeholder="Notes">'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
       block.rows.forEach(row=>{
         html += roleLabelHTML(row, band);
@@ -1002,6 +1009,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
       if(field==='blocktitle'||field==='blockmeta'){ const b=findBlock(id); if(b) b[field==='blocktitle'?'title':'meta']=t.value; }
+      else if(field==='blockpm'){ const b=findBlock(id); if(b) b.pm=t.value; }
+      else if(field==='blockphase'){ const b=findBlock(id); if(b) b.phaseManager=t.value; }
+      else if(field==='blocknum'){ const b=findBlock(id); if(b) b.projectNumber=t.value; }
       else if(field==='role'){ const found=findRow(id); if(found) found.row.role=t.value; }
       else if(field==='name'){ const found=findRow(id); if(found) found.row.name=t.value; }
       else if(field==='initials'){ const found=findRow(id); if(found) found.row.initials=t.value; }
@@ -1109,7 +1119,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-addrow-block]')){ const b=findBlock(t.dataset.addrowBlock); if(b) b.rows.push({id:newId(),role:'New role',cells:{}}); render(); scheduleSave(); return; }
     if(t.matches('[data-addblock-region]')){
       const rk=t.dataset.addblockRegion;
-      state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'PM:',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
+      state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
       render(); scheduleSave(); return;
     }
     if(t.matches('[data-addblock-after]')){
@@ -1118,7 +1128,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         const blocks = state.regions[rk].blocks;
         const idx = blocks.findIndex(b=>b.id===afterId);
         if(idx!==-1){
-          blocks.splice(idx+1, 0, {id:newId(),title:'New project',meta:'PM:',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
+          blocks.splice(idx+1, 0, {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
           break;
         }
       }

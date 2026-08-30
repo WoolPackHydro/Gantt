@@ -11,6 +11,9 @@
   .wrap{flex:1;display:flex;flex-direction:column;min-height:0;padding:8px;}
   header.intro{flex:0 0 auto;margin-bottom:6px;display:flex;align-items:center;gap:10px;}
   header.intro h1{font-size:13px;font-weight:600;margin:0;color:#1c1f22;}
+  .iconbtn{font-size:15px;line-height:1;padding:3px 9px;border:1px solid #9aa0a6;background:#fbfdfe;color:#1c1f22;cursor:pointer;border-radius:3px;}
+  .iconbtn:hover:not(:disabled){background:#eef4f6;}
+  .iconbtn:disabled{opacity:.32;cursor:default;}
   header.intro span{font-size:11px;color:#5a6472;}
 
   .tabrow{flex:0 0 auto;display:flex;align-items:center;border-bottom:1px solid #c9c9c9;flex-wrap:wrap;}
@@ -54,6 +57,10 @@
 
   .subhead{grid-column:1/-1;min-height:18px;}
   .subhead-inner{position:sticky;left:0;display:inline-block;color:#3c3c3c;font-size:10.5px;font-weight:600;padding:2px 6px;white-space:nowrap;}
+  .subrowhead{grid-column:1/-1;min-height:17px;background:rgba(0,0,0,.035);}
+  .subrowhead-inner{position:sticky;left:16px;display:flex;align-items:center;gap:6px;width:fit-content;padding:1px 5px;}
+  .subrowhead-inner input{font-size:9.5px;font-weight:700;font-style:italic;text-transform:uppercase;letter-spacing:.03em;color:#5a6472;border:none;background:transparent;padding:0 2px;width:180px;}
+  .subrowhead-inner .del{opacity:.5;flex-shrink:0;}
   .blockhead{grid-column:1/-1;min-height:19px;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
   .blockhead input.btitle{font-size:11px;font-weight:600;border:none;background:transparent;color:#1c1f22;padding:0 2px;width:250px;flex:0 0 auto;}
@@ -153,6 +160,8 @@
 <div class="wrap" id="appRoot" style="display:none">
   <header class="intro">
     <h1>Woolpert Maritime — Gantt</h1>
+    <button id="undoBtn" class="iconbtn" title="Undo (Ctrl+Z)" disabled>↶</button>
+    <button id="redoBtn" class="iconbtn" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
     <div class="spacer"></div>
     <span class="sync" id="syncStatus">Synced</span>
     <button class="signout-link" id="signOutBtn">Sign out</button>
@@ -313,6 +322,45 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   let state=null, lastSyncedJSON=null, saveTimer=null, retryTimer=null;
 
+  // ---- undo/redo ----
+  const MAX_UNDO = 40;
+  let undoStack = [], redoStack = [];
+  let focusUndoSnapshot = null;
+  let suppressUndoCapture = false; // true while applying a remote sync update, so someone else's edit never lands in our undo history
+  function commitUndoSnapshot(beforeJson){
+    undoStack.push(beforeJson);
+    if(undoStack.length>MAX_UNDO) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+  function pushUndo(){ commitUndoSnapshot(JSON.stringify(state)); }
+  function updateUndoRedoButtons(){
+    const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
+    if(u) u.disabled = undoStack.length===0;
+    if(r) r.disabled = redoStack.length===0;
+  }
+  function applyHistorySnapshot(json){
+    const nav = {activeTab:state.activeTab, historyDate:state.historyDate, historySearch:state.historySearch, hidePast:state.hidePast};
+    state = normalizeState(JSON.parse(json));
+    Object.assign(state, nav); // undo/redo only touches data, never which tab/view you're looking at
+  }
+  function doUndo(){
+    if(!undoStack.length) return;
+    redoStack.push(JSON.stringify(state));
+    if(redoStack.length>MAX_UNDO) redoStack.shift();
+    applyHistorySnapshot(undoStack.pop());
+    render(); scheduleSave();
+    updateUndoRedoButtons();
+  }
+  function doRedo(){
+    if(!redoStack.length) return;
+    undoStack.push(JSON.stringify(state));
+    if(undoStack.length>MAX_UNDO) undoStack.shift();
+    applyHistorySnapshot(redoStack.pop());
+    render(); scheduleSave();
+    updateUndoRedoButtons();
+  }
+
   function findRow(rowId){
     const emp = state.employees.find(e=>e.id===rowId);
     if(emp) return {row:emp, remove:()=>{ state.employees = state.employees.filter(x=>x.id!==rowId); }};
@@ -333,6 +381,47 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(b) return b;
     }
     return null;
+  }
+
+  function migrateNoaaStructure(){
+    // The original Charleston (3-boat crew) and Offshore Pensacola (follow-the-sun shift)
+    // structure got flattened into the project title during the initial import instead of
+    // staying as proper sub-groups. Every row's actual data survived intact — this just
+    // rebuilds the grouping around it. Runs harmlessly every load; the title check below
+    // is naturally false once already fixed, so it can never double-apply.
+    const noaa = state.regions && state.regions.noaa;
+    if(!noaa) return false;
+    let changed = false;
+    noaa.blocks.forEach(block=>{
+      if(block.title && block.title.indexOf('NOAA Charleston')===0 && block.title.indexOf(' — ')!==-1){
+        const rows = block.rows;
+        block.title = 'NOAA Charleston';
+        const leftover = (rows[0] && Object.keys(rows[0].cells||{}).length) ? [rows[0]] : [];
+        block.rows = [].concat(
+          leftover,
+          [{id:newId(), type:'subheader', label:'Current'}], rows.slice(1,3),
+          [{id:newId(), type:'subheader', label:'505'}], rows.slice(3,5),
+          [{id:newId(), type:'subheader', label:'Thunder'}], rows.slice(5,12)
+        );
+        changed = true;
+      }
+      if(block.title && block.title.indexOf('NOAA, Offshore Pensacola')===0 && block.title.indexOf(' — ')!==-1){
+        const rows = block.rows;
+        block.title = 'NOAA, Offshore Pensacola (10022579.03)';
+        const leftover = (rows[0] && Object.keys(rows[0].cells||{}).length) ? [rows[0]] : [];
+        const utcRanges = ['0700 - 1300 UTC','1300 - 1900 UTC','1900 - 0100 UTC','0100 - 0700 UTC'];
+        for(let i=1; i<=4; i++){
+          if(rows[i] && rows[i].role) rows[i].role = rows[i].role.replace(' (', ' ('+utcRanges[i-1]+' / ');
+        }
+        block.rows = [].concat(
+          leftover,
+          [{id:newId(), type:'subheader', label:'Remote Collection & Processing Support — follow-the-sun shifts'}],
+          rows.slice(1,10)
+        );
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   function normalizeState(s){
@@ -388,7 +477,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         incoming.historySearch = state.historySearch;
         incoming.hidePast = state.hidePast;
         state = incoming; lastSyncedJSON = json;
+        suppressUndoCapture = true;
         render(); flashCells(changed);
+        suppressUndoCapture = false;
       }, (err)=>{
         console.error('Firebase read failed — check your databaseURL and security rules.', err);
         if(first){ first=false; state=seedState(); lastSyncedJSON=JSON.stringify(state); resolve(); }
@@ -530,6 +621,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return '<div class="cell lblnum row" data-row="'+row.id+'"'+bg+'></div>'
       + '<div class="cell lblname row" data-row="'+row.id+'"'+bg+'><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div>';
   }
+  function subrowHeaderHTML(row){
+    return '<div class="subrowhead"><div class="subrowhead-inner">'
+      + '<input value="'+escAttr(row.label||'')+'" data-field="subrowlabel|'+row.id+'" placeholder="Sub-group name">'
+      + '<button class="del" data-delrow="'+row.id+'" title="Remove sub-group heading">✕</button></div></div>';
+  }
 
   function renderTabbar(){
     const bar = document.getElementById('tabbar');
@@ -582,10 +678,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<input class="bmeta" value="'+escAttr(block.meta||'')+'" data-field="blockmeta|'+block.id+'" placeholder="Notes">'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
       block.rows.forEach(row=>{
-        html += roleLabelHTML(row, band);
-        days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
+        if(row.type==='subheader'){
+          html += subrowHeaderHTML(row);
+        } else {
+          html += roleLabelHTML(row, band);
+          days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
+        }
       });
-      html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
+      html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
     });
     html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button></div></div>';
     let archivedHTML = '';
@@ -824,6 +924,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const days = visibleDays();
     const anchorDateIdx = days.indexOf(anchorDate);
     if(anchorRowIdx===-1 || anchorDateIdx===-1) return;
+    pushUndo();
     clipboardData.forEach((rowData, ri)=>{
       const targetRowEl = rowEls[anchorRowIdx+ri];
       if(!targetRowEl) return;
@@ -958,6 +1059,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.addEventListener('mouseup', e=>{
     if(!fillDrag) return;
+    if(fillDrag.axis==='v' || fillDrag.axis==='h') pushUndo();
     if(fillDrag.axis==='v'){
       const originFound = findRow(fillDrag.originRow);
       const originCellData = originFound && originFound.row.cells[fillDrag.originDate] ? JSON.parse(JSON.stringify(originFound.row.cells[fillDrag.originDate])) : {text:''};
@@ -1013,6 +1115,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       else if(field==='blockphase'){ const b=findBlock(id); if(b) b.phaseManager=t.value; }
       else if(field==='blocknum'){ const b=findBlock(id); if(b) b.projectNumber=t.value; }
       else if(field==='role'){ const found=findRow(id); if(found) found.row.role=t.value; }
+      else if(field==='subrowlabel'){ const found=findRow(id); if(found) found.row.label=t.value; }
       else if(field==='name'){ const found=findRow(id); if(found) found.row.name=t.value; }
       else if(field==='initials'){ const found=findRow(id); if(found) found.row.initials=t.value; }
       scheduleSave();
@@ -1026,6 +1129,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.matches('input')) e.target.blur(); });
   document.addEventListener('focusin', e=>{
+    if(e.target.matches('input,select,textarea') && appStarted){
+      focusUndoSnapshot = JSON.stringify(state);
+    }
     if(e.target.matches('.cellinput')){
       e.target.select();
       const [rowId,date] = e.target.dataset.cellinput.split('|');
@@ -1036,7 +1142,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
     }
   });
-  document.addEventListener('focusout', e=>{ if(e.target.matches('.cellinput')) hideFillHandle(); });
+  document.addEventListener('focusout', e=>{
+    if(e.target.matches('.cellinput')) hideFillHandle();
+    if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
+      if(!suppressUndoCapture){
+        const current = JSON.stringify(state);
+        if(current !== focusUndoSnapshot) commitUndoSnapshot(focusUndoSnapshot);
+      }
+      focusUndoSnapshot = null;
+    }
+  });
   document.addEventListener('change', e=>{
     const t=e.target;
     if(t.matches('.initials-input')){
@@ -1091,10 +1206,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       render(false);
       return;
     }
-    if(t.matches('[data-delrow]')){ const found=findRow(t.dataset.delrow); if(found && confirm('Remove this row?')){ found.remove(); render(); scheduleSave(); } return; }
+    if(t.matches('[data-delrow]')){ const found=findRow(t.dataset.delrow); if(found && confirm('Remove this row?')){ pushUndo(); found.remove(); render(); scheduleSave(); } return; }
     if(t.matches('[data-delblock]')){
       const b=findBlock(t.dataset.delblock);
       if(b && confirm('Mark "'+b.title+'" complete and move it to History? Its data stays on record — nothing is deleted.')){
+        pushUndo();
         b.archived = true;
         b.archivedDate = TODAY_ISO;
         render(); scheduleSave();
@@ -1103,12 +1219,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     if(t.matches('[data-restoreblock]')){
       const b=findBlock(t.dataset.restoreblock);
-      if(b){ b.archived=false; delete b.archivedDate; render(); scheduleSave(); }
+      if(b){ pushUndo(); b.archived=false; delete b.archivedDate; render(); scheduleSave(); }
       return;
     }
     if(t.matches('[data-deleteblock]')){
       const b=findBlock(t.dataset.deleteblock);
       if(b && confirm('Permanently delete "'+b.title+'"? This cannot be undone — unlike closing a project, this actually erases its data for good.')){
+        pushUndo();
         for(const rk of Object.keys(state.regions)){
           state.regions[rk].blocks = state.regions[rk].blocks.filter(x=>x.id!==b.id);
         }
@@ -1116,14 +1233,17 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
       return;
     }
-    if(t.matches('[data-addrow-block]')){ const b=findBlock(t.dataset.addrowBlock); if(b) b.rows.push({id:newId(),role:'New role',cells:{}}); render(); scheduleSave(); return; }
+    if(t.matches('[data-addrow-block]')){ const b=findBlock(t.dataset.addrowBlock); if(b){ pushUndo(); b.rows.push({id:newId(),role:'New role',cells:{}}); } render(); scheduleSave(); return; }
+    if(t.matches('[data-addsubhead-block]')){ const b=findBlock(t.dataset.addsubheadBlock); if(b){ pushUndo(); b.rows.push({id:newId(),type:'subheader',label:'New sub-group'}); } render(); scheduleSave(); return; }
     if(t.matches('[data-addblock-region]')){
       const rk=t.dataset.addblockRegion;
+      pushUndo();
       state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
       render(); scheduleSave(); return;
     }
     if(t.matches('[data-addblock-after]')){
       const afterId = t.dataset.addblockAfter;
+      pushUndo();
       for(const rk of Object.keys(state.regions)){
         const blocks = state.regions[rk].blocks;
         const idx = blocks.findIndex(b=>b.id===afterId);
@@ -1140,11 +1260,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(!initials) return;
       const emp=state.employees.find(e=>e.initials && e.initials.toLowerCase()===initials.trim().toLowerCase());
       if(!emp){ alert('No employee found with those initials. Add them in Settings first.'); return; }
+      pushUndo();
       state.regions[rk].overflow.push({id:newId(), initials:emp.initials, name:emp.name, cells:{}});
       render(); scheduleSave(); return;
     }
     if(t.matches('[data-addsetitem]')){
       const list=t.dataset.addsetitem;
+      pushUndo();
       if(list==='employees') state.employees.push({id:newId(), initials:'', name:'New employee', color:hashColor(newId()), cells:{}});
       else if(list==='boats') state.boats.push({id:newId(), code:'', name:'New boat', color:hashColor(newId())});
       else if(list==='statusCodes') state.statusCodes.push({id:newId(), code:'', label:'New code', color:hashColor(newId())});
@@ -1153,6 +1275,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-addregion]')){
       const key = 'region_'+newId();
       const color = nextRegionColor();
+      pushUndo();
       state.regions[key] = { title:'New Section', color, tint:lightTint(color), overflow:[], blocks:[] };
       state.regionOrder = state.regionOrder||Object.keys(state.regions);
       state.regionOrder.push(key);
@@ -1160,7 +1283,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     if(t.matches('[data-setdel]')){
       const [list,id]=t.dataset.setdel.split('|');
-      if(confirm('Remove this entry?')){ state[list]=state[list].filter(x=>x.id!==id); render(); scheduleSave(); }
+      if(confirm('Remove this entry?')){ pushUndo(); state[list]=state[list].filter(x=>x.id!==id); render(); scheduleSave(); }
       return;
     }
   });
@@ -1193,6 +1316,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const order = state.regionOrder||Object.keys(state.regions);
       const fromIdx = order.indexOf(dragRegionKey), toIdx = order.indexOf(targetKey);
       if(fromIdx!==-1 && toIdx!==-1){
+        pushUndo();
         order.splice(fromIdx,1);
         order.splice(toIdx,0,dragRegionKey);
         state.regionOrder = order;
@@ -1226,6 +1350,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const savedTab = localStorage.getItem(LAST_TAB_KEY);
       if(savedTab && getTabs().some(t=>t.id===savedTab)) state.activeTab = savedTab;
     }catch(e){}
+    if(migrateNoaaStructure()) scheduleSave();
     render();
     startDateWatcher();
   }
@@ -1254,6 +1379,20 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   document.getElementById('signOutBtn').addEventListener('click', ()=>{
     signOut(fbAuth);
+  });
+  document.getElementById('undoBtn').addEventListener('click', doUndo);
+  document.getElementById('redoBtn').addEventListener('click', doRedo);
+  document.addEventListener('keydown', e=>{
+    if(!appStarted) return;
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if(!isCtrl) return;
+    if(e.key==='z' || e.key==='Z'){
+      e.preventDefault();
+      if(e.shiftKey) doRedo(); else doUndo();
+    } else if(e.key==='y' || e.key==='Y'){
+      e.preventDefault();
+      doRedo();
+    }
   });
 })();
 </script>

@@ -84,6 +84,10 @@
   .setsection h3{font-size:12.5px;margin:0 0 6px;color:#1c1f22;}
   .setlist{display:flex;flex-direction:column;gap:3px;margin-bottom:6px;max-height:340px;overflow:auto;border:1px solid #e0e0e0;padding:4px;}
   .setrow{display:flex;align-items:center;gap:6px;padding:2px 2px;}
+  .setlist-header{display:flex;align-items:center;gap:6px;padding:0 2px 3px;margin-bottom:3px;border-bottom:1px solid #c9c9c9;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:#5a6472;}
+  .setlist-header .hdr-fill,.setlist-header .hdr-font{width:22px;text-align:center;}
+  .setlist-header .hdr-bold{width:26px;text-align:center;}
+  .setlist-header .hdr-fields{flex:1;}
   .setrow input[type=color]{width:22px;height:22px;padding:0;border:1px solid #9aa0a6;cursor:pointer;flex-shrink:0;}
   .boldtoggle{display:flex;align-items:center;gap:2px;font-size:11px;font-weight:700;color:#5a6472;cursor:pointer;flex-shrink:0;border:1px solid #d3d3d3;padding:2px 5px;}
   .boldtoggle input{margin:0;cursor:pointer;}
@@ -252,7 +256,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function hashColor(key){
     const h = hashNum(key);
     const hue = (h * 137.508) % 360;
-    return hslToHex(hue, 40, 80);
+    return hslToHex(hue, 58, 78);
   }
   function textColorFor(bgHex){
     if(!bgHex) return '#1c1f22';
@@ -278,7 +282,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const key = text.trim().toLowerCase();
     if(!key) return null;
     const item = masterItemFor(key);
-    if(item) return softenColor(item.color);
+    if(item) return item.color;
     return hashColor(key);
   }
   function fontStyleFor(text, bgColor){
@@ -562,7 +566,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
 
   function settingsListHTML(listKey, items, fields){
-    return items.map(item=>{
+    const fieldLabel = fields.map(f=>f.placeholder).join(' / ');
+    const header = '<div class="setlist-header"><span class="hdr-fill">Fill</span><span class="hdr-font">Font</span><span class="hdr-bold">Bold</span><span class="hdr-fields">'+escAttr(fieldLabel)+'</span></div>';
+    const rows = items.map(item=>{
       const inputs = fields.map(f=>{
         const w = (f.name==='initials'||f.name==='code') ? 'width:56px;' : 'flex:1;';
         return '<input value="'+escAttr(item[f.name]||'')+'" data-setfield="'+listKey+'|'+item.id+'|'+f.name+'" placeholder="'+f.placeholder+'" style="'+w+'">';
@@ -571,13 +577,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const fontColor = item.fontColor || textColorFor(bg);
       const bold = !!item.bold;
       return '<div class="setrow">'
-        + '<input type="color" value="'+bg+'" data-setcolor="'+listKey+'|'+item.id+'" title="Background color">'
-        + '<input type="color" value="'+fontColor+'" data-setfontcolor="'+listKey+'|'+item.id+'" title="Text color">'
+        + '<input type="color" value="'+bg+'" data-setcolor="'+listKey+'|'+item.id+'" title="Fill color">'
+        + '<input type="color" value="'+fontColor+'" data-setfontcolor="'+listKey+'|'+item.id+'" title="Font color">'
         + '<label class="boldtoggle" title="Bold text"><input type="checkbox" data-setbold="'+listKey+'|'+item.id+'"'+(bold?' checked':'')+'>B</label>'
         + inputs
         + '<button class="del2" data-setdel="'+listKey+'|'+item.id+'">✕</button>'
         + '</div>';
     }).join('');
+    return header + rows;
   }
   function renderSettingsTab(container){
     let html = '<div class="settings-wrap">';
@@ -670,13 +677,22 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     container.innerHTML = '<div class="history-wrap">'+toolbar+body+'</div>';
   }
 
-  function render(){
+  function render(preserveScroll){
+    let scrollTop=0, scrollLeft=0;
+    if(preserveScroll!==false){
+      const prev = document.querySelector('.sheetscroll');
+      if(prev){ scrollTop=prev.scrollTop; scrollLeft=prev.scrollLeft; }
+    }
     renderTabbar();
     const c = document.getElementById('tabcontent');
     if(state.activeTab==='settings') renderSettingsTab(c);
     else if(state.activeTab==='pto') renderPTOTab(c);
     else if(state.activeTab==='history') renderHistoryTab(c);
     else renderRegionTab(c, state.activeTab);
+    if(preserveScroll!==false){
+      const next = document.querySelector('.sheetscroll');
+      if(next){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
+    }
   }
 
   function groupRowsFor(rowId){
@@ -887,7 +903,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-tab]')){
       state.activeTab=t.dataset.tab;
       try{ localStorage.setItem(LAST_TAB_KEY, state.activeTab); }catch(e){}
-      render();
+      render(false);
       return;
     }
     if(t.matches('[data-delrow]')){ const found=findRow(t.dataset.delrow); if(found && confirm('Remove this row?')){ found.remove(); render(); scheduleSave(); } return; }

@@ -308,7 +308,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return s;
   }
 
-  let state=null, lastSyncedJSON=null, saveTimer=null;
+  let state=null, lastSyncedJSON=null, saveTimer=null, retryTimer=null;
 
   function findRow(rowId){
     const emp = state.employees.find(e=>e.id===rowId);
@@ -384,18 +384,28 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   function scheduleSave(){
     clearTimeout(saveTimer);
+    clearTimeout(retryTimer);
     setSyncLabel('Saving…');
-    saveTimer = setTimeout(async ()=>{
-      const json = JSON.stringify(state);
-      lastSyncedJSON = json; // set before writing: Firebase echoes our own write back through onValue almost immediately, sometimes before this await resolves, and we don't want that echo mistaken for someone else's edit
-      try{
-        await set(ref(fbDb, STATE_PATH), state);
-        setSyncLabel('Synced');
-      }catch(e){
-        console.error('Firebase write failed', e);
+    saveTimer = setTimeout(()=> attemptSave(0), 500);
+  }
+  async function attemptSave(attempt){
+    const json = JSON.stringify(state);
+    lastSyncedJSON = json; // set before writing: Firebase echoes our own write back through onValue almost immediately, sometimes before this await resolves, and we don't want that echo mistaken for someone else's edit
+    try{
+      // JSON.stringify silently drops any stray `undefined` value; Firebase's SDK instead throws
+      // outright if it sees one, so round-tripping through JSON first guards against that case.
+      const clean = JSON.parse(json);
+      await set(ref(fbDb, STATE_PATH), clean);
+      setSyncLabel('Synced');
+    }catch(e){
+      console.error('Firebase write failed (attempt '+(attempt+1)+'):', e && e.code ? e.code : e);
+      if(attempt < 3){
         setSyncLabel('Save failed — retrying');
+        retryTimer = setTimeout(()=> attemptSave(attempt+1), 1500*(attempt+1));
+      } else {
+        setSyncLabel('Save failed — see browser console (F12)');
       }
-    }, 500);
+    }
   }
   function setSyncLabel(t){ document.getElementById('syncStatus').textContent=t; }
 

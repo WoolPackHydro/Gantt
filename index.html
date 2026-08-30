@@ -3,20 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Woolpert Maritime — Scheduling grid prototype</title>
+<title>Woolpert Maritime — Gantt</title>
 <style>
   *{box-sizing:border-box;}
-  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#e6eef2;color:#1c1f22;font-size:12px;}
-  .wrap{margin:0 auto;padding:10px 14px 30px;}
-  header.intro{margin-bottom:6px;display:flex;align-items:baseline;gap:10px;}
+  html,body{height:100%;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#bfd4dd;color:#1c1f22;font-size:12px;display:flex;flex-direction:column;}
+  .wrap{flex:1;display:flex;flex-direction:column;min-height:0;padding:8px;}
+  header.intro{flex:0 0 auto;margin-bottom:6px;display:flex;align-items:baseline;gap:10px;}
   header.intro h1{font-size:13px;font-weight:600;margin:0;color:#1c1f22;}
   header.intro span{font-size:11px;color:#5a6472;}
 
-  .tabbar{display:flex;gap:2px;border-bottom:1px solid #c9c9c9;flex-wrap:wrap;}
+  .tabbar{flex:0 0 auto;display:flex;gap:2px;border-bottom:1px solid #c9c9c9;flex-wrap:wrap;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
 
-  .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 6px;padding:5px 2px;border-bottom:1px solid #c9c9c9;}
+  .toolbar{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 6px;padding:5px 2px;border-bottom:1px solid #c9c9c9;}
   .toolbar label{font-size:11.5px;color:#5a6472;display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
   .btn{font-size:11.5px;padding:3px 9px;border-radius:3px;border:1px solid #9aa0a6;background:#fff;color:#1c1f22;cursor:pointer;}
   .btn:hover{background:#f0f0f0;}
@@ -24,13 +25,16 @@
   .sync{font-size:11px;color:#5a6472;}
   .sync::before{content:"●";color:#4c9a5b;margin-right:4px;font-size:8px;}
 
-  .sheetscroll{overflow:auto;border:1px solid #9aa0a6;background:#f7fafb;max-height:calc(100vh - 150px);width:100%;}
+  #tabcontent{flex:1;min-height:0;display:flex;flex-direction:column;}
+  .sheetscroll{overflow:auto;border:1px solid #9aa0a6;background:#f7fafb;width:100%;flex:1;min-height:0;}
   #sheet{display:grid;font-size:11px;position:relative;}
   .cell{border:1px solid #d3d3d3;display:flex;align-items:stretch;position:relative;background:#fbfdfe;min-height:19px;}
   .lblnum,.lblname{position:sticky;z-index:3;background:#eef4f6;padding:0 3px;display:flex;align-items:center;border-right:1px solid #9aa0a6;font-size:10.5px;}
   .lblnum{left:0;justify-content:center;font-weight:600;}
   .lblname{left:34px;justify-content:space-between;gap:3px;}
   .idname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;font-size:11px;}
+  .idname-input{border:none;background:transparent;font-size:11px;padding:0 1px;flex:1;min-width:0;color:#1c1f22;}
+  .idname-input:focus{outline:1px solid #4a86c5;}
   .lblname input{border:none;background:transparent;font-size:11px;font-weight:500;padding:0 1px;width:100%;color:#1c1f22;}
   .lblname input:focus{outline:1px solid #4a86c5;}
   .del{opacity:0;border:none;background:none;color:#a4373a;cursor:pointer;font-size:11px;padding:0 3px;flex-shrink:0;}
@@ -126,7 +130,7 @@
 
 <div class="wrap" id="appRoot" style="display:none">
   <header class="intro">
-    <h1>Woolpert Maritime — scheduling grid</h1>
+    <h1>Woolpert Maritime — Gantt</h1>
     <span>Synced live</span>
   </header>
   <div class="tabbar" id="tabbar"></div>
@@ -423,8 +427,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const color = colorForText(row.initials) || '#f2f2f2';
     const txtColor = textColorFor(color);
     const del = opts.deletable ? '<button class="del" data-delrow="'+row.id+'" title="Remove">✕</button>' : '';
+    const nameField = opts.editable
+      ? '<input class="idname-input" value="'+escAttr(row.name||'')+'" data-field="name|'+row.id+'">'
+      : '<span class="idname">'+escAttr(row.name||'')+'</span>';
     return '<div class="cell lblnum row" data-row="'+row.id+'" style="background:'+color+';color:'+txtColor+'">'+escAttr(row.initials||'')+'</div>'
-      + '<div class="cell lblname row" data-row="'+row.id+'"><span class="idname">'+escAttr(row.name||'')+'</span>'+del+'</div>';
+      + '<div class="cell lblname row" data-row="'+row.id+'">'+nameField+del+'</div>';
   }
   function roleLabelHTML(row, band){
     const bg = band ? ' style="background:'+band+'"' : '';
@@ -465,7 +472,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     days.forEach(d=> html += dateHeadHTML(d));
     html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow</span></div>';
     reg.overflow.forEach(row=>{
-      html += identityLabelHTML(row, {deletable:true});
+      html += identityLabelHTML(row, {deletable:true, editable:true});
       days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
     });
     html += '<div class="addrow"><button data-addoverflow-region="'+regionKey+'">+ Add person to overflow</button></div>';
@@ -485,7 +492,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     let archivedHTML = '';
     if(archivedBlocks.length){
       archivedHTML = '<details class="archived-wrap"><summary>Completed projects ('+archivedBlocks.length+') — data preserved, viewable in History</summary>'
-        + archivedBlocks.map(b=>'<div class="archived-row"><span>'+escAttr(b.title)+'</span><span class="archived-date">closed '+(b.archivedDate||'')+'</span><button class="btn" data-restoreblock="'+b.id+'">Restore</button></div>').join('')
+        + archivedBlocks.map(b=>'<div class="archived-row"><span>'+escAttr(b.title)+'</span><span class="archived-date">closed '+(b.archivedDate||'')+'</span><button class="btn" data-restoreblock="'+b.id+'">Restore</button><button class="btn" data-deleteblock="'+b.id+'">Delete permanently</button></div>').join('')
         + '</details>';
     }
     container.innerHTML = '<div class="sheetscroll" style="border-top:3px solid '+reg.color+'"><div id="sheet" style="grid-template-columns:34px 150px repeat('+days.length+',34px)">'+html+'</div></div>'+archivedHTML;
@@ -711,6 +718,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const [field,id]=t.dataset.field.split('|');
       if(field==='blocktitle'||field==='blockmeta'){ const b=findBlock(id); if(b) b[field==='blocktitle'?'title':'meta']=t.value; }
       else if(field==='role'){ const found=findRow(id); if(found) found.row.role=t.value; }
+      else if(field==='name'){ const found=findRow(id); if(found) found.row.name=t.value; }
       scheduleSave();
     } else if(t.id==='historySearchInput'){
       state.historySearch = t.value;
@@ -748,7 +756,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.addEventListener('click', e=>{
     const t=e.target;
-    if(t.matches('[data-tab]')){ state.activeTab=t.dataset.tab; render(); return; }
+    if(t.matches('[data-tab]')){
+      state.activeTab=t.dataset.tab;
+      try{ localStorage.setItem(LAST_TAB_KEY, state.activeTab); }catch(e){}
+      render();
+      return;
+    }
     if(t.matches('[data-delrow]')){ const found=findRow(t.dataset.delrow); if(found && confirm('Remove this row?')){ found.remove(); render(); scheduleSave(); } return; }
     if(t.matches('[data-delblock]')){
       const b=findBlock(t.dataset.delblock);
@@ -762,6 +775,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-restoreblock]')){
       const b=findBlock(t.dataset.restoreblock);
       if(b){ b.archived=false; delete b.archivedDate; render(); scheduleSave(); }
+      return;
+    }
+    if(t.matches('[data-deleteblock]')){
+      const b=findBlock(t.dataset.deleteblock);
+      if(b && confirm('Permanently delete "'+b.title+'"? This cannot be undone — unlike closing a project, this actually erases its data for good.')){
+        for(const rk of Object.keys(state.regions)){
+          state.regions[rk].blocks = state.regions[rk].blocks.filter(x=>x.id!==b.id);
+        }
+        render(); scheduleSave();
+      }
       return;
     }
     if(t.matches('[data-addrow-block]')){ const b=findBlock(t.dataset.addrowBlock); if(b) b.rows.push({id:newId(),role:'New role',cells:{}}); render(); scheduleSave(); return; }
@@ -813,6 +836,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }, 60000);
   }
 
+  const LAST_TAB_KEY = 'woolpert_last_tab';
+
   let appStarted = false;
   async function startApp(){
     if(appStarted) return;
@@ -820,6 +845,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appRoot').style.display = '';
     await loadState();
+    try{
+      const savedTab = localStorage.getItem(LAST_TAB_KEY);
+      if(savedTab && TABS.some(t=>t.id===savedTab)) state.activeTab = savedTab;
+    }catch(e){}
     document.getElementById('hidePastToggle').checked = !state.hidePast;
     render();
     startDateWatcher();

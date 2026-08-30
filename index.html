@@ -9,7 +9,7 @@
   html,body{height:100%;}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#bfd4dd;color:#1c1f22;font-size:12px;display:flex;flex-direction:column;}
   .wrap{flex:1;display:flex;flex-direction:column;min-height:0;padding:8px;}
-  header.intro{flex:0 0 auto;margin-bottom:6px;display:flex;align-items:baseline;gap:10px;}
+  header.intro{flex:0 0 auto;margin-bottom:6px;display:flex;align-items:center;gap:10px;}
   header.intro h1{font-size:13px;font-weight:600;margin:0;color:#1c1f22;}
   header.intro span{font-size:11px;color:#5a6472;}
 
@@ -20,8 +20,6 @@
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
 
-  .toolbar{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 6px;padding:5px 2px;border-bottom:1px solid #c9c9c9;}
-  .toolbar label{font-size:11.5px;color:#5a6472;display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;}
   .btn{font-size:11.5px;padding:3px 9px;border-radius:3px;border:1px solid #9aa0a6;background:#fff;color:#1c1f22;cursor:pointer;}
   .btn:hover{background:#f0f0f0;}
   .spacer{flex:1;}
@@ -151,16 +149,12 @@
 <div class="wrap" id="appRoot" style="display:none">
   <header class="intro">
     <h1>Woolpert Maritime — Gantt</h1>
-    <span>Synced live</span>
-  </header>
-  <div class="tabrow">
-    <div class="tabbar" id="tabbar"></div>
-    <label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"> Show past days</label>
-  </div>
-  <div class="toolbar">
     <div class="spacer"></div>
     <span class="sync" id="syncStatus">Synced</span>
     <button class="signout-link" id="signOutBtn">Sign out</button>
+  </header>
+  <div class="tabrow">
+    <div class="tabbar" id="tabbar"></div>
   </div>
   <div id="tabcontent"></div>
 </div>
@@ -547,8 +541,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const tabs = getTabs();
     const leftTabs = tabs.filter(t=>t.id!=='history' && t.id!=='settings');
     const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings');
+    const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>';
     bar.innerHTML = '<div class="tabgroup">'+leftTabs.map(tabBtn).join('')+'</div>'
-      + '<div class="tabgroup">'+rightTabs.map(tabBtn).join('')+'</div>';
+      + '<div class="tabgroup">'+pastDaysHTML+rightTabs.map(tabBtn).join('')+'</div>';
   }
 
   function renderPTOTab(container){
@@ -1070,6 +1065,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.matches('[data-setptocolor]')){
       state.ptoColor = t.value;
       render(); scheduleSave();
+    } else if(t.id==='hidePastToggle'){
+      state.hidePast = !t.checked;
+      render(); scheduleSave();
     } else if(t.id==='historyDateInput'){
       state.historyDate = t.value;
       render();
@@ -1156,7 +1154,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       return;
     }
   });
-  document.getElementById('hidePastToggle').addEventListener('change', e=>{ state.hidePast=!e.target.checked; render(); scheduleSave(); });
 
   let dragRegionKey = null;
   document.addEventListener('dragstart', e=>{
@@ -1219,7 +1216,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const savedTab = localStorage.getItem(LAST_TAB_KEY);
       if(savedTab && getTabs().some(t=>t.id===savedTab)) state.activeTab = savedTab;
     }catch(e){}
-    document.getElementById('hidePastToggle').checked = !state.hidePast;
     render();
     startDateWatcher();
   }

@@ -7,7 +7,7 @@
 <style>
   *{box-sizing:border-box;}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#fafafa;color:#1c1f22;font-size:12px;}
-  .wrap{max-width:1500px;margin:0 auto;padding:10px 14px 30px;}
+  .wrap{margin:0 auto;padding:10px 14px 30px;}
   header.intro{margin-bottom:6px;display:flex;align-items:baseline;gap:10px;}
   header.intro h1{font-size:13px;font-weight:600;margin:0;color:#1c1f22;}
   header.intro span{font-size:11px;color:#5a6472;}
@@ -24,7 +24,7 @@
   .sync{font-size:11px;color:#5a6472;}
   .sync::before{content:"●";color:#4c9a5b;margin-right:4px;font-size:8px;}
 
-  .sheetscroll{overflow:auto;border:1px solid #9aa0a6;background:#fff;max-height:76vh;}
+  .sheetscroll{overflow:auto;border:1px solid #9aa0a6;background:#fff;max-height:76vh;width:100%;}
   #sheet{display:grid;font-size:11px;position:relative;}
   .cell{border:1px solid #d3d3d3;display:flex;align-items:stretch;position:relative;background:#fff;min-height:19px;}
   .lblnum,.lblname{position:sticky;z-index:3;background:#fff;padding:0 3px;display:flex;align-items:center;border-right:1px solid #9aa0a6;font-size:10.5px;}
@@ -282,6 +282,21 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return null;
   }
 
+  function normalizeState(s){
+    // Firebase Realtime Database prunes empty objects/arrays entirely — a row with no
+    // assignments yet (cells:{}) or a block with no rows (rows:[]) comes back missing
+    // that field rather than empty. Backfill everything our rendering code assumes exists.
+    s.employees = (s.employees||[]).map(e=>({ ...e, cells: e.cells||{} }));
+    s.boats = s.boats||[];
+    s.statusCodes = s.statusCodes||[];
+    s.regions = s.regions||{};
+    Object.keys(s.regions).forEach(rk=>{
+      const reg = s.regions[rk];
+      reg.overflow = (reg.overflow||[]).map(r=>({ ...r, cells: r.cells||{} }));
+      reg.blocks = (reg.blocks||[]).map(b=>({ ...b, rows: (b.rows||[]).map(r=>({ ...r, cells: r.cells||{} })) }));
+    });
+    return s;
+  }
   async function loadState(){
     return new Promise((resolve)=>{
       let first = true;
@@ -289,7 +304,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         if(first){
           first = false;
           if(snap.exists()){
-            state = snap.val();
+            state = normalizeState(snap.val());
             lastSyncedJSON = JSON.stringify(state);
           } else {
             state = seedState();
@@ -300,9 +315,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
           return;
         }
         // every later fire is either our own write echoing back, or a change from someone else
-        const json = JSON.stringify(snap.val());
+        const incoming = normalizeState(snap.val());
+        const json = JSON.stringify(incoming);
         if(json === lastSyncedJSON) return;
-        const incoming = snap.val();
         const changed = diffCellIds(state, incoming);
         // navigation/view state is personal to this screen, not something to inherit from whoever last saved
         incoming.activeTab = state.activeTab;

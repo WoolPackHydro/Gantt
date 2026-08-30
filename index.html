@@ -14,7 +14,8 @@
   header.intro span{font-size:11px;color:#5a6472;}
 
   .tabrow{flex:0 0 auto;display:flex;align-items:center;border-bottom:1px solid #c9c9c9;flex-wrap:wrap;}
-  .tabbar{display:flex;gap:2px;flex-wrap:wrap;}
+  .tabbar{display:flex;flex:1;justify-content:space-between;flex-wrap:wrap;}
+  .tabgroup{display:flex;gap:2px;flex-wrap:wrap;}
   .pastdays-inline{font-size:11px;color:#5a6472;display:flex;align-items:center;gap:5px;margin-left:14px;padding:6px 4px;cursor:pointer;user-select:none;white-space:nowrap;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
@@ -90,6 +91,7 @@
   .drag-handle{cursor:grab;padding:0 3px;color:#9aa0a6;font-size:13px;user-select:none;flex-shrink:0;}
   .region-row.drag-over{background:#eef4fa;outline:1px dashed #4a86c5;}
   .sethint{font-size:10.5px;color:#5a6472;margin:0 0 6px;}
+  .pinned-note{font-size:9.5px;color:#9aa0a6;font-style:italic;flex-shrink:0;}
   .setlist-header{display:flex;align-items:center;gap:6px;padding:0 2px 3px;margin-bottom:3px;border-bottom:1px solid #c9c9c9;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:#5a6472;}
   .setlist-header .hdr-fill,.setlist-header .hdr-font{width:22px;text-align:center;}
   .setlist-header .hdr-bold{width:26px;text-align:center;}
@@ -193,7 +195,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function getTabs(){
     const order = (state.regionOrder||Object.keys(state.regions)).filter(rk=>state.regions[rk]);
     const regionTabs = order.map(rk => ({id:rk, label: state.regions[rk].title}));
-    return [{id:'pto', label:'PTO'}].concat(regionTabs, [{id:'history', label:'History'}, {id:'settings', label:'Settings'}]);
+    return [{id:'pto', label:state.ptoLabel||'PTO'}].concat(regionTabs, [{id:'history', label:'History'}, {id:'settings', label:'Settings'}]);
   }
 
   function isoDate(d){
@@ -356,6 +358,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       s.regionOrder = s.regionOrder.filter(k=>allKeys.includes(k));
       allKeys.forEach(k=>{ if(!s.regionOrder.includes(k)) s.regionOrder.push(k); });
     }
+    s.ptoLabel = s.ptoLabel || 'PTO';
+    s.ptoColor = s.ptoColor || '#6AA84F';
     return s;
   }
   async function loadState(){
@@ -531,15 +535,20 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   function renderTabbar(){
     const bar = document.getElementById('tabbar');
-    bar.innerHTML = getTabs().map(t=>{
+    function tabBtn(t){
       const active = state.activeTab===t.id;
       let accent = '#333';
-      if(t.id==='pto') accent = '#6AA84F';
+      if(t.id==='pto') accent = state.ptoColor||'#6AA84F';
       else if(t.id==='history') accent = '#B8860B';
       else if(state.regions[t.id]) accent = state.regions[t.id].color;
       const style = active ? 'border-bottom:3px solid '+accent+';font-weight:600;color:#1c1f22;' : 'border-bottom:3px solid transparent;color:#5a6472;';
       return '<button class="tab" data-tab="'+t.id+'" style="'+style+'">'+escAttr(t.label)+'</button>';
-    }).join('');
+    }
+    const tabs = getTabs();
+    const leftTabs = tabs.filter(t=>t.id!=='history' && t.id!=='settings');
+    const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings');
+    bar.innerHTML = '<div class="tabgroup">'+leftTabs.map(tabBtn).join('')+'</div>'
+      + '<div class="tabgroup">'+rightTabs.map(tabBtn).join('')+'</div>';
   }
 
   function renderPTOTab(container){
@@ -617,6 +626,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function nextRegionColor(){ return REGION_PALETTE[Object.keys(state.regions).length % REGION_PALETTE.length]; }
   function regionsSettingsHTML(){
     const order = (state.regionOrder||Object.keys(state.regions)).filter(rk=>state.regions[rk]);
+    const ptoRow = '<div class="setrow">'
+      + '<span class="drag-handle" style="visibility:hidden;">⠿</span>'
+      + '<input type="color" value="'+(state.ptoColor||'#6AA84F')+'" data-setptocolor="1" title="Tab color">'
+      + '<input value="'+escAttr(state.ptoLabel||'PTO')+'" data-setptolabel="1" placeholder="PTO tab name" style="flex:1;">'
+      + '<span class="pinned-note">always first</span>'
+      + '</div>';
     const rows = order.map(rk=>{
       const reg = state.regions[rk];
       return '<div class="setrow region-row" data-regionkey="'+rk+'">'
@@ -625,7 +640,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<input value="'+escAttr(reg.title)+'" data-setregiontitle="'+rk+'" placeholder="Section name" style="flex:1;">'
         + '</div>';
     }).join('');
-    return '<div class="setsection"><h3>Sections (offices)</h3><p class="sethint">Drag the handle to reorder — this sets the order left-to-right in the tab bar. PTO always stays first; History and Settings always stay last.</p><div class="setlist">'+rows+'</div>'
+    return '<div class="setsection"><h3>Sections (offices)</h3><p class="sethint">Drag the handle to reorder — this sets the order left-to-right in the tab bar. PTO always stays first; History and Settings always stay last.</p><div class="setlist">'+ptoRow+rows+'</div>'
       + '<button class="btn" data-addregion="1">+ Add a whole new section</button></div>';
   }
   function renderSettingsTab(container){
@@ -1048,6 +1063,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.matches('[data-setregioncolor]')){
       const rk = t.dataset.setregioncolor;
       if(state.regions[rk]){ state.regions[rk].color = t.value; state.regions[rk].tint = lightTint(t.value); }
+      render(); scheduleSave();
+    } else if(t.matches('[data-setptolabel]')){
+      state.ptoLabel = t.value;
+      render(); scheduleSave();
+    } else if(t.matches('[data-setptocolor]')){
+      state.ptoColor = t.value;
       render(); scheduleSave();
     } else if(t.id==='historyDateInput'){
       state.historyDate = t.value;

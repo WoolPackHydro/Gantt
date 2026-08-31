@@ -963,8 +963,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const found = findRow(rowId);
     return found ? [found.row] : [];
   }
+  function fillGroupFor(rowId, date){
+    // if there's an active multi-row selection that includes this cell, drag the whole
+    // selected set of rows together — each keeping its own value — instead of falling
+    // back to "just this one row" (which is what project-grouping alone would give for
+    // rows that aren't part of the same project, like several overflow/PTO people).
+    if(currentSelection && currentSelection.rowIds.length>1 && currentSelection.rowIds.includes(rowId) && currentSelection.dates.includes(date)){
+      return currentSelection.rowIds.map(id=>{ const f=findRow(id); return f?f.row:null; }).filter(Boolean);
+    }
+    return groupRowsFor(rowId);
+  }
   function showFillHandle(rowId, date){
-    const group = groupRowsFor(rowId);
+    const group = fillGroupFor(rowId, date);
     if(!group.length) return;
     const lastRow = group[group.length-1];
     const targetCell = document.querySelector('.daycell[data-row="'+lastRow.id+'"][data-date="'+date+'"]');
@@ -987,7 +997,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(e.target && e.target.id==='fillhandle'){
       e.preventDefault();
       const originRow=e.target.dataset.originRow, originDate=e.target.dataset.originDate;
-      const group = groupRowsFor(originRow);
+      const group = fillGroupFor(originRow, originDate);
       fillDrag = {
         originRow, originDate, startX:e.clientX, startY:e.clientY, axis:null,
         group: group.map(r=>({ id:r.id, cellData: r.cells[originDate] ? JSON.parse(JSON.stringify(r.cells[originDate])) : null })),

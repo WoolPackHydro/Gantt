@@ -151,6 +151,11 @@
   .login-card button:hover{background:#333;}
   .login-error{font-size:11px;color:#a4373a;margin-top:8px;min-height:14px;}
   .signout-link{font-size:11px;color:#5a6472;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;}
+  .selection-bar{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#fff3cd;border-bottom:1px solid #e0c36b;font-size:12px;color:#5a4a1c;}
+  .selection-bar button{font-size:11px;padding:4px 10px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;}
+  .selection-bar button:hover{background:#f2f2f2;}
+  .blockselect{margin-right:2px;cursor:pointer;flex-shrink:0;}
+  .blockhead-selected{outline:2px solid #2f6fb0;outline-offset:-2px;}
 
   @media (max-width: 768px){
     /* The tab row was wrapping combined with space-between, which on a narrow screen
@@ -195,6 +200,12 @@
   </header>
   <div class="tabrow">
     <div class="tabbar" id="tabbar"></div>
+  </div>
+  <div id="selectionBar" class="selection-bar" style="display:none">
+    <span id="selectionBarText"></span>
+    <button id="selectionCopyBtn">Copy</button>
+    <button id="selectionTransferBtn">Transfer (move) — removes from here once pasted</button>
+    <button id="selectionClearBtn">Clear selection</button>
   </div>
   <div id="tabcontent"></div>
 </div>
@@ -706,7 +717,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     html += '<div class="addrow"><div class="addrow-inner"><button data-addoverflow-region="'+regionKey+'">+ Add person to overflow</button></div></div>';
     activeBlocks.forEach((block,blockIndex)=>{
       const band = blockBand(blockIndex);
-      html += '<div class="blockhead" style="background:'+reg.tint+'"><div class="blockhead-inner">'
+      const selClass = selectedProjectIds.has(block.id) ? ' blockhead-selected' : '';
+      html += '<div class="blockhead'+selClass+'" style="background:'+reg.tint+'"><div class="blockhead-inner">'
+        + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="movebtn" data-moveblock-up="'+block.id+'" title="Move project up">↑</button>'
         + '<button class="movebtn" data-moveblock-down="'+block.id+'" title="Move project down">↓</button>'
         + '<span class="titlewrap"><input class="btitle" data-field="blocktitle|'+block.id+'" placeholder="Project name" value="'+escAttr(block.title)+'"><span class="rsz"></span></span>'
@@ -727,7 +740,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       });
       html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
     });
-    const pasteBtn = projectClipboard ? '<button class="pasteprojectbtn" data-pasteblock-region="'+regionKey+'">+ Paste copied project here: "'+escAttr(projectClipboard.title)+'"</button>' : '';
+    let pasteBtn = '';
+    if(projectClipboard && projectClipboard.blocks && projectClipboard.blocks.length){
+      const n = projectClipboard.blocks.length;
+      const verb = projectClipboard.mode==='transfer' ? 'Move' : 'Paste';
+      const label = n===1 ? '"'+escAttr(projectClipboard.blocks[0].title)+'"' : n+' projects';
+      pasteBtn = '<button class="pasteprojectbtn" data-pasteblock-region="'+regionKey+'">+ '+verb+' '+label+' here</button>';
+    }
     html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'</div></div>';
     let archivedHTML = '';
     if(archivedBlocks.length){
@@ -930,7 +949,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
   let currentSelection = null; // {rowIds:[...], dates:[...]}
-  let projectClipboard = null; // holds a deep copy of a whole project (block), for pasting into any section
+  let projectClipboard = null; // {mode:'copy'|'transfer', blocks:[...], sourceIds:[...]} — deep-copied projects, for pasting into any section
+  let selectedProjectIds = new Set(); // project ids checked for a multi-project copy/transfer, independent of which tab is active
+  function updateSelectionBar(){
+    const bar = document.getElementById('selectionBar');
+    const text = document.getElementById('selectionBarText');
+    if(!bar || !text) return;
+    if(selectedProjectIds.size===0){ bar.style.display='none'; return; }
+    bar.style.display='flex';
+    text.textContent = selectedProjectIds.size+' project'+(selectedProjectIds.size===1?'':'s')+' selected';
+  }
   let selectionHighlighted = [];
   function allRowElements(){
     return Array.from(document.querySelectorAll('.lblname[data-row]'));
@@ -1164,6 +1192,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.id==='hidePastToggle'){
       state.hidePast = !t.checked;
       render(); scheduleSave();
+    } else if(t.matches('[data-blockselect]')){
+      const id = t.dataset.blockselect;
+      if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
+      updateSelectionBar();
+      render();
     } else if(t.id==='historyDateInput'){
       state.historyDate = t.value;
       render();
@@ -1222,19 +1255,29 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     if(t.matches('[data-copyblock]')){
       const b=findBlock(t.dataset.copyblock);
-      if(b){ projectClipboard = JSON.parse(JSON.stringify(b)); render(); }
+      if(b){ projectClipboard = { mode:'copy', blocks:[JSON.parse(JSON.stringify(b))] }; render(); }
       return;
     }
     if(t.matches('[data-pasteblock-region]')){
-      if(!projectClipboard) return;
+      if(!projectClipboard || !projectClipboard.blocks || !projectClipboard.blocks.length) return;
       const rk = t.dataset.pasteblockRegion;
       pushUndo();
-      const newBlock = JSON.parse(JSON.stringify(projectClipboard));
-      newBlock.id = newId();
-      newBlock.archived = false; delete newBlock.archivedDate;
-      newBlock.tabled = false;
-      (newBlock.rows||[]).forEach(r=>{ r.id = newId(); });
-      state.regions[rk].blocks.push(newBlock);
+      projectClipboard.blocks.forEach(srcBlock=>{
+        const newBlock = JSON.parse(JSON.stringify(srcBlock));
+        newBlock.id = newId();
+        newBlock.archived = false; delete newBlock.archivedDate;
+        newBlock.tabled = false;
+        (newBlock.rows||[]).forEach(r=>{ r.id = newId(); });
+        state.regions[rk].blocks.push(newBlock);
+      });
+      if(projectClipboard.mode==='transfer' && projectClipboard.sourceIds){
+        projectClipboard.sourceIds.forEach(sid=>{
+          for(const rk2 of Object.keys(state.regions)){
+            state.regions[rk2].blocks = state.regions[rk2].blocks.filter(b=>b.id!==sid);
+          }
+        });
+        projectClipboard = null; // a transfer only ever gets pasted once — the originals are gone now
+      }
       render(); scheduleSave();
       return;
     }
@@ -1413,6 +1456,28 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.getElementById('undoBtn').addEventListener('click', doUndo);
   document.getElementById('redoBtn').addEventListener('click', doRedo);
+  document.getElementById('selectionCopyBtn').addEventListener('click', ()=>{
+    const blocks = [...selectedProjectIds].map(id=>findBlock(id)).filter(Boolean);
+    if(!blocks.length) return;
+    projectClipboard = { mode:'copy', blocks: JSON.parse(JSON.stringify(blocks)) };
+    selectedProjectIds.clear();
+    updateSelectionBar();
+    render();
+  });
+  document.getElementById('selectionTransferBtn').addEventListener('click', ()=>{
+    const ids = [...selectedProjectIds];
+    const blocks = ids.map(id=>findBlock(id)).filter(Boolean);
+    if(!blocks.length) return;
+    projectClipboard = { mode:'transfer', blocks: JSON.parse(JSON.stringify(blocks)), sourceIds: ids };
+    selectedProjectIds.clear();
+    updateSelectionBar();
+    render();
+  });
+  document.getElementById('selectionClearBtn').addEventListener('click', ()=>{
+    selectedProjectIds.clear();
+    updateSelectionBar();
+    render();
+  });
   document.addEventListener('keydown', e=>{
     if(!appStarted) return;
     const isCtrl = e.ctrlKey || e.metaKey;

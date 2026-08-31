@@ -63,13 +63,20 @@
   .subrowhead-inner .del{opacity:.5;flex-shrink:0;}
   .blockhead{grid-column:1/-1;min-height:19px;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
-  .blockhead input.btitle{font-size:11px;font-weight:600;border:none;background:transparent;color:#1c1f22;padding:0 2px;width:250px;flex:0 0 auto;}
-  .blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum{font-size:10.5px;border:none;background:transparent;color:#3c4650;padding:0 2px;flex:0 0 auto;border-left:1px solid rgba(0,0,0,.12);}
-  .blockhead input.bpm{width:100px;}
-  .blockhead input.bphase{width:120px;}
-  .blockhead input.bnum{width:90px;}
-  .blockhead input.bmeta{font-size:10.5px;border:none;background:transparent;color:#5a6472;padding:0 2px;width:160px;flex:0 0 auto;border-left:1px solid rgba(0,0,0,.12);}
-  .blockhead input:focus{outline:1px solid #4a86c5;}
+  .blockhead textarea{resize:horizontal;overflow-x:auto;white-space:pre;height:16px;min-height:16px;max-height:22px;line-height:16px;font-family:inherit;vertical-align:middle;}
+  .blockhead textarea.btitle{font-size:11px;font-weight:600;border:none;background:transparent;color:#1c1f22;padding:0 2px;width:250px;flex:0 0 auto;}
+  .fieldbox{display:flex;align-items:center;gap:3px;border:1px solid rgba(0,0,0,.15);border-radius:3px;padding:0 3px;background:rgba(255,255,255,.45);flex-shrink:0;}
+  .fieldbox-label{font-size:9px;font-weight:700;color:#5a6472;white-space:nowrap;letter-spacing:.02em;}
+  .blockhead textarea.bpm,.blockhead textarea.bphase,.blockhead textarea.bnum{font-size:10.5px;border:none;background:transparent;color:#3c4650;padding:0 2px;flex:0 0 auto;}
+  .blockhead textarea.bpm{width:80px;}
+  .blockhead textarea.bphase{width:100px;}
+  .blockhead textarea.bnum{width:70px;}
+  .blockhead textarea.bmeta{font-size:10.5px;border:none;background:transparent;color:#5a6472;padding:0 2px;width:140px;flex:0 0 auto;}
+  .blockhead .movebtn{font-size:10px;line-height:1;padding:2px 4px;border:1px solid rgba(0,0,0,.15);background:rgba(255,255,255,.5);color:#3c4650;cursor:pointer;flex-shrink:0;}
+  .blockhead .movebtn:hover{background:#fff;}
+  .blockhead .tablebtn{opacity:.55;flex-shrink:0;font-weight:700;}
+  .blockhead .tablebtn:hover{opacity:1;}
+  .blockhead input:focus,.blockhead textarea:focus{outline:1px solid #4a86c5;}
   .blockhead .del{opacity:.5;flex:0 0 auto;}
 
   .monthhead{position:sticky;top:0;z-index:4;background:#0b3a4a;color:#fff;font-size:15px;font-weight:700;letter-spacing:.04em;padding:2px 10px;height:22px;display:flex;align-items:center;}
@@ -78,6 +85,9 @@
   .addrow,.addblock{grid-column:1/-1;min-height:19px;}
   .addrow-inner,.addblock-inner{position:sticky;left:0;display:flex;gap:6px;padding:2px 4px;width:fit-content;}
   .addrow button,.addblock button{font-size:10.5px;color:#5a6472;background:none;border:1px dashed #9aa0a6;padding:1px 8px;cursor:pointer;white-space:nowrap;}
+  .pasteprojectbtn{border:1px dashed #2f6fb0!important;color:#2f6fb0!important;font-weight:600;}
+  .copybtn{opacity:.55;}
+  .copybtn:hover{opacity:1;}
   .addrow button:hover,.addblock button:hover{background:#f2f2f2;}
   .addblock{padding-bottom:10px;}
 
@@ -87,8 +97,6 @@
   .daycell.flash input.cellinput{animation:flash 1.6s ease-out;}
   @keyframes flash{0%{box-shadow:inset 0 0 0 999px rgba(74,134,197,.55);}100%{box-shadow:inset 0 0 0 999px rgba(74,134,197,0);}}
 
-  .fillhandle{position:absolute;width:7px;height:7px;background:#2f6fb0;border:1px solid #fff;cursor:crosshair;z-index:9;display:none;}
-  .fillpreview{outline:2px dashed #2f6fb0;outline-offset:-2px;}
   .cellselected{outline:2px solid #2f6fb0;outline-offset:-2px;box-shadow:inset 0 0 0 999px rgba(47,111,176,.14);}
   .daycell.has-comment::after{content:'';position:absolute;top:0;right:0;width:8px;height:8px;background:#c0272d;clip-path:polygon(100% 0,0 0,100% 100%);pointer-events:none;}
 
@@ -557,6 +565,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return fallbackBg ? ('background:'+fallbackBg+';') : '';
   }
   function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function monthBand(dateStr){
     const dt = new Date(dateStr+'T00:00:00');
@@ -659,8 +668,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function renderRegionTab(container, regionKey){
     const reg = state.regions[regionKey];
     const days = visibleDays();
-    const activeBlocks = reg.blocks.filter(b=>!b.archived);
+    const activeBlocks = reg.blocks.filter(b=>!b.archived && !b.tabled);
     const archivedBlocks = reg.blocks.filter(b=>b.archived);
+    const tabledBlocks = reg.blocks.filter(b=>!b.archived && b.tabled);
     let html = gridHeaderHTML(days);
     html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow</span></div>';
     reg.overflow.forEach(row=>{
@@ -671,11 +681,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     activeBlocks.forEach((block,blockIndex)=>{
       const band = blockBand(blockIndex);
       html += '<div class="blockhead" style="background:'+reg.tint+'"><div class="blockhead-inner">'
-        + '<input class="btitle" value="'+escAttr(block.title)+'" data-field="blocktitle|'+block.id+'" placeholder="Project name">'
-        + '<input class="bpm" value="'+escAttr(block.pm||'')+'" data-field="blockpm|'+block.id+'" placeholder="PM">'
-        + '<input class="bphase" value="'+escAttr(block.phaseManager||'')+'" data-field="blockphase|'+block.id+'" placeholder="Phase manager">'
-        + '<input class="bnum" value="'+escAttr(block.projectNumber||'')+'" data-field="blocknum|'+block.id+'" placeholder="Project #">'
-        + '<input class="bmeta" value="'+escAttr(block.meta||'')+'" data-field="blockmeta|'+block.id+'" placeholder="Notes">'
+        + '<button class="movebtn" data-moveblock-up="'+block.id+'" title="Move project up">↑</button>'
+        + '<button class="movebtn" data-moveblock-down="'+block.id+'" title="Move project down">↓</button>'
+        + '<textarea class="btitle" rows="1" wrap="off" data-field="blocktitle|'+block.id+'" placeholder="Project name">'+escHtml(block.title)+'</textarea>'
+        + '<span class="fieldbox"><span class="fieldbox-label">PM:</span><textarea class="bpm" rows="1" wrap="off" data-field="blockpm|'+block.id+'">'+escHtml(block.pm||'')+'</textarea></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><textarea class="bphase" rows="1" wrap="off" data-field="blockphase|'+block.id+'">'+escHtml(block.phaseManager||'')+'</textarea></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">#:</span><textarea class="bnum" rows="1" wrap="off" data-field="blocknum|'+block.id+'">'+escHtml(block.projectNumber||'')+'</textarea></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><textarea class="bmeta" rows="1" wrap="off" data-field="blockmeta|'+block.id+'">'+escHtml(block.meta||'')+'</textarea></span>'
+        + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
+        + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
       block.rows.forEach(row=>{
         if(row.type==='subheader'){
@@ -687,11 +701,17 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       });
       html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
     });
-    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button></div></div>';
+    const pasteBtn = projectClipboard ? '<button class="pasteprojectbtn" data-pasteblock-region="'+regionKey+'">+ Paste copied project here: "'+escAttr(projectClipboard.title)+'"</button>' : '';
+    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'</div></div>';
     let archivedHTML = '';
     if(archivedBlocks.length){
       archivedHTML = '<details class="archived-wrap"><summary>Completed projects ('+archivedBlocks.length+') — data preserved, viewable in History</summary>'
         + archivedBlocks.map(b=>'<div class="archived-row"><span>'+escAttr(b.title)+'</span><span class="archived-date">closed '+(b.archivedDate||'')+'</span><button class="btn" data-restoreblock="'+b.id+'">Restore</button><button class="btn" data-deleteblock="'+b.id+'">Delete permanently</button></div>').join('')
+        + '</details>';
+    }
+    if(tabledBlocks.length){
+      archivedHTML += '<details class="archived-wrap"><summary>Tabled for later ('+tabledBlocks.length+') — not complete, just tucked away</summary>'
+        + tabledBlocks.map(b=>'<div class="archived-row"><span>'+escAttr(b.title)+'</span><button class="btn" data-untableblock="'+b.id+'">Bring back</button></div>').join('')
         + '</details>';
     }
     container.innerHTML = '<div class="sheetscroll" style="border-top:3px solid '+reg.color+'"><div id="sheet" style="grid-template-columns:34px 150px repeat('+days.length+',34px)">'+html+'</div></div>'+archivedHTML;
@@ -855,15 +875,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
   }
 
-  function groupRowsFor(rowId){
-    for(const rk of Object.keys(state.regions)){
-      for(const b of state.regions[rk].blocks){
-        if(b.rows.some(r=>r.id===rowId)) return b.rows;
-      }
-    }
-    const found = findRow(rowId);
-    return found ? [found.row] : [];
-  }
   function verticalSiblingsFor(rowId){
     if(state.employees.some(e=>e.id===rowId)) return state.employees;
     for(const rk of Object.keys(state.regions)){
@@ -876,9 +887,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return [];
   }
 
-  // ---- multi-cell range selection + copy/paste ----
+  // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
   let currentSelection = null; // {rowIds:[...], dates:[...]}
-  let clipboardData = null;    // 2D array [rowIndex][dateIndex] -> cellData or null
+  let projectClipboard = null; // holds a deep copy of a whole project (block), for pasting into any section
   let selectionHighlighted = [];
   function allRowElements(){
     return Array.from(document.querySelectorAll('.lblname[data-row]'));
@@ -911,33 +922,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
     selectionHighlighted = found;
   }
-  function buildClipboard(sel){
-    return sel.rowIds.map(rid=>{
-      const found = findRow(rid);
-      return sel.dates.map(d => (found && found.row.cells[d]) ? JSON.parse(JSON.stringify(found.row.cells[d])) : null);
-    });
-  }
-  function pasteClipboardAt(anchorRowId, anchorDate){
-    if(!clipboardData || !clipboardData.length) return;
-    const rowEls = allRowElements();
-    const anchorRowIdx = rowEls.findIndex(el=>el.dataset.row===anchorRowId);
-    const days = visibleDays();
-    const anchorDateIdx = days.indexOf(anchorDate);
-    if(anchorRowIdx===-1 || anchorDateIdx===-1) return;
-    pushUndo();
-    clipboardData.forEach((rowData, ri)=>{
-      const targetRowEl = rowEls[anchorRowIdx+ri];
-      if(!targetRowEl) return;
-      const found = findRow(targetRowEl.dataset.row);
-      if(!found) return;
-      rowData.forEach((cellData, ci)=>{
-        const targetDate = days[anchorDateIdx+ci];
-        if(!targetDate) return;
-        found.row.cells[targetDate] = cellData ? JSON.parse(JSON.stringify(cellData)) : {text:''};
-      });
-    });
-    render(); scheduleSave();
-  }
 
   let rangeDrag = null;
   document.addEventListener('mousedown', e=>{
@@ -962,126 +946,55 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     clearSelectionHighlight();
     applySelectionHighlight(sel);
   });
-  document.addEventListener('mouseup', ()=>{ rangeDrag = null; });
-  document.addEventListener('keydown', e=>{
-    const isCtrl = e.ctrlKey || e.metaKey;
-    if(!isCtrl) return;
-    const onGridTab = state.activeTab!=='settings' && state.activeTab!=='history';
-    if(!onGridTab || !currentSelection) return;
-    if(e.key==='c' || e.key==='C'){
-      e.preventDefault();
-      clipboardData = buildClipboard(currentSelection);
-    } else if(e.key==='v' || e.key==='V'){
-      e.preventDefault();
-      pasteClipboardAt(currentSelection.rowIds[0], currentSelection.dates[0]);
+  document.addEventListener('mouseup', ()=>{
+    if(rangeDrag && rangeDrag.moved){
+      // refocus the anchor cell (while rangeDrag still shows "moved", so focusin won't collapse the selection)
+      // so copy/paste — gated on the focused element — keeps working right after a drag-select.
+      const anchorInput = document.querySelector('.daycell[data-row="'+rangeDrag.startRow+'"][data-date="'+rangeDrag.startDate+'"] .cellinput');
+      if(anchorInput) anchorInput.focus({preventScroll:true});
     }
+    rangeDrag = null;
   });
-
-  function showFillHandle(rowId, date){
-    const group = groupRowsFor(rowId);
-    if(!group.length) return;
-    const lastRow = group[group.length-1];
-    const targetCell = document.querySelector('.daycell[data-row="'+lastRow.id+'"][data-date="'+date+'"]');
-    const sheetEl = document.getElementById('sheet');
-    if(!targetCell || !sheetEl) return;
-    let handle = document.getElementById('fillhandle');
-    if(!handle){ handle=document.createElement('div'); handle.id='fillhandle'; handle.className='fillhandle'; sheetEl.appendChild(handle); }
-    else if(handle.parentElement !== sheetEl){ sheetEl.appendChild(handle); }
-    handle.style.left = (targetCell.offsetLeft + targetCell.offsetWidth - 5) + 'px';
-    handle.style.top = (targetCell.offsetTop + targetCell.offsetHeight - 5) + 'px';
-    handle.style.display = 'block';
-    handle.dataset.originRow = rowId;
-    handle.dataset.originDate = date;
-  }
-  function hideFillHandle(){ const h=document.getElementById('fillhandle'); if(h) h.style.display='none'; }
-  function clearFillPreview(fd){ (fd.lastHighlighted||[]).forEach(sel=>{ const e2=document.querySelector(sel); if(e2) e2.classList.remove('fillpreview'); }); }
-
-  let fillDrag = null;
-  document.addEventListener('mousedown', e=>{
-    if(e.target && e.target.id==='fillhandle'){
-      e.preventDefault();
-      const originRow=e.target.dataset.originRow, originDate=e.target.dataset.originDate;
-      const group = groupRowsFor(originRow);
-      fillDrag = {
-        originRow, originDate,
-        startX: e.clientX, startY: e.clientY, axis: null,
-        group: group.map(r=>({ id:r.id, cellData: r.cells[originDate] ? JSON.parse(JSON.stringify(r.cells[originDate])) : null })),
-        lastHighlighted: [], currentRange:[originDate], verticalRowIds: []
-      };
-    }
+  document.addEventListener('copy', e=>{
+    if(!appStarted || !currentSelection) return;
+    if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
+    const rows = currentSelection.rowIds.map(rid=>{
+      const found = findRow(rid);
+      return currentSelection.dates.map(d => (found && found.row.cells[d] && found.row.cells[d].text) || '');
+    });
+    e.clipboardData.setData('text/plain', rows.map(r=>r.join('\t')).join('\n'));
+    e.preventDefault();
   });
-  document.addEventListener('mousemove', e=>{
-    if(!fillDrag) return;
-    if(!fillDrag.axis){
-      const dx=Math.abs(e.clientX-fillDrag.startX), dy=Math.abs(e.clientY-fillDrag.startY);
-      if(dx<5 && dy<5) return;
-      fillDrag.axis = (dy>dx) ? 'v' : 'h';
-    }
-    if(fillDrag.axis==='h'){
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const cellEl = el && el.closest && el.closest('.daycell');
-      if(!cellEl) return;
-      const targetDate = cellEl.dataset.date;
-      const days = visibleDays();
-      const oi=days.indexOf(fillDrag.originDate), ti=days.indexOf(targetDate);
-      if(oi===-1||ti===-1) return;
-      const lo=Math.min(oi,ti), hi=Math.max(oi,ti);
-      const rangeDates = days.slice(lo,hi+1);
-      clearFillPreview(fillDrag);
-      const newSel=[];
-      fillDrag.group.forEach(g=>{
-        rangeDates.forEach(d=>{
-          const sel='.daycell[data-row="'+g.id+'"][data-date="'+d+'"]';
-          const e2=document.querySelector(sel);
-          if(e2){ e2.classList.add('fillpreview'); newSel.push(sel); }
-        });
+  document.addEventListener('paste', e=>{
+    if(!appStarted || !currentSelection) return;
+    if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    if(!text) return;
+    e.preventDefault();
+    const lines = text.replace(/\r/g,'').split('\n');
+    while(lines.length && lines[lines.length-1]==='') lines.pop(); // drop Excel's trailing blank line
+    if(!lines.length) return;
+    const grid = lines.map(l=>l.split('\t'));
+    const rowEls = allRowElements();
+    const anchorRowIdx = rowEls.findIndex(el=>el.dataset.row===currentSelection.rowIds[0]);
+    const days = visibleDays();
+    const anchorDateIdx = days.indexOf(currentSelection.dates[0]);
+    if(anchorRowIdx===-1 || anchorDateIdx===-1) return;
+    pushUndo();
+    grid.forEach((rowVals, ri)=>{
+      const targetRowEl = rowEls[anchorRowIdx+ri];
+      if(!targetRowEl) return;
+      const found = findRow(targetRowEl.dataset.row);
+      if(!found) return;
+      rowVals.forEach((val, ci)=>{
+        const targetDate = days[anchorDateIdx+ci];
+        if(!targetDate) return;
+        found.row.cells[targetDate] = {text: val.trim()}; // text only — color always resolves fresh from colorForText
       });
-      fillDrag.lastHighlighted = newSel;
-      fillDrag.currentRange = rangeDates;
-    } else {
-      const siblings = verticalSiblingsFor(fillDrag.originRow).map(r=>r.id);
-      const colCells = Array.from(document.querySelectorAll('.daycell[data-date="'+fillDrag.originDate+'"]'))
-        .filter(el=>siblings.includes(el.dataset.row));
-      const originEl = document.querySelector('.daycell[data-row="'+fillDrag.originRow+'"][data-date="'+fillDrag.originDate+'"]');
-      if(!originEl || !colCells.length) return;
-      const originTop = originEl.getBoundingClientRect().top;
-      const lo=Math.min(originTop,e.clientY), hi=Math.max(originTop,e.clientY);
-      const targets = colCells.filter(el=>{
-        const r=el.getBoundingClientRect(); const mid=r.top+r.height/2;
-        return mid>=lo-2 && mid<=hi+2;
-      });
-      clearFillPreview(fillDrag);
-      const newSel=[];
-      targets.forEach(el=>{ el.classList.add('fillpreview'); newSel.push('.daycell[data-row="'+el.dataset.row+'"][data-date="'+fillDrag.originDate+'"]'); });
-      fillDrag.lastHighlighted = newSel;
-      fillDrag.verticalRowIds = targets.map(el=>el.dataset.row).filter(id=>id!==fillDrag.originRow);
-    }
-  });
-  document.addEventListener('mouseup', e=>{
-    if(!fillDrag) return;
-    if(fillDrag.axis==='v' || fillDrag.axis==='h') pushUndo();
-    if(fillDrag.axis==='v'){
-      const originFound = findRow(fillDrag.originRow);
-      const originCellData = originFound && originFound.row.cells[fillDrag.originDate] ? JSON.parse(JSON.stringify(originFound.row.cells[fillDrag.originDate])) : {text:''};
-      fillDrag.verticalRowIds.forEach(rid=>{
-        const found = findRow(rid);
-        if(found) found.row.cells[fillDrag.originDate] = JSON.parse(JSON.stringify(originCellData));
-      });
-    } else if(fillDrag.axis==='h'){
-      const range = (fillDrag.currentRange && fillDrag.currentRange.length) ? fillDrag.currentRange : [fillDrag.originDate];
-      fillDrag.group.forEach(g=>{
-        const found = findRow(g.id);
-        if(!found) return;
-        range.forEach(d=>{
-          if(d===fillDrag.originDate) return;
-          found.row.cells[d] = g.cellData ? JSON.parse(JSON.stringify(g.cellData)) : {text:''};
-        });
-      });
-    }
-    clearFillPreview(fillDrag);
-    fillDrag = null;
+    });
     render(); scheduleSave();
   });
+
 
   document.addEventListener('contextmenu', e=>{
     const cellEl = e.target.closest && e.target.closest('.daycell');
@@ -1135,7 +1048,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(e.target.matches('.cellinput')){
       e.target.select();
       const [rowId,date] = e.target.dataset.cellinput.split('|');
-      showFillHandle(rowId,date);
       if(!(rangeDrag && rangeDrag.moved)){
         clearSelectionHighlight();
         currentSelection = {rowIds:[rowId], dates:[date]};
@@ -1143,7 +1055,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
   });
   document.addEventListener('focusout', e=>{
-    if(e.target.matches('.cellinput')) hideFillHandle();
     if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
       if(!suppressUndoCapture){
         const current = JSON.stringify(state);
@@ -1222,6 +1133,51 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(b){ pushUndo(); b.archived=false; delete b.archivedDate; render(); scheduleSave(); }
       return;
     }
+    if(t.matches('[data-moveblock-up]') || t.matches('[data-moveblock-down]')){
+      const id = t.dataset.moveblockUp || t.dataset.moveblockDown;
+      const dir = t.dataset.moveblockUp ? -1 : 1;
+      for(const rk of Object.keys(state.regions)){
+        const blocks = state.regions[rk].blocks;
+        const idx = blocks.findIndex(x=>x.id===id);
+        if(idx===-1) continue;
+        let swapIdx = idx + dir;
+        while(swapIdx>=0 && swapIdx<blocks.length && (blocks[swapIdx].archived || blocks[swapIdx].tabled)) swapIdx += dir;
+        if(swapIdx<0 || swapIdx>=blocks.length) break;
+        pushUndo();
+        [blocks[idx], blocks[swapIdx]] = [blocks[swapIdx], blocks[idx]];
+        render(); scheduleSave();
+        break;
+      }
+      return;
+    }
+    if(t.matches('[data-tableblock]')){
+      const b=findBlock(t.dataset.tableblock);
+      if(b){ pushUndo(); b.tabled=true; render(); scheduleSave(); }
+      return;
+    }
+    if(t.matches('[data-untableblock]')){
+      const b=findBlock(t.dataset.untableblock);
+      if(b){ pushUndo(); b.tabled=false; render(); scheduleSave(); }
+      return;
+    }
+    if(t.matches('[data-copyblock]')){
+      const b=findBlock(t.dataset.copyblock);
+      if(b){ projectClipboard = JSON.parse(JSON.stringify(b)); render(); }
+      return;
+    }
+    if(t.matches('[data-pasteblock-region]')){
+      if(!projectClipboard) return;
+      const rk = t.dataset.pasteblockRegion;
+      pushUndo();
+      const newBlock = JSON.parse(JSON.stringify(projectClipboard));
+      newBlock.id = newId();
+      newBlock.archived = false; delete newBlock.archivedDate;
+      newBlock.tabled = false;
+      (newBlock.rows||[]).forEach(r=>{ r.id = newId(); });
+      state.regions[rk].blocks.push(newBlock);
+      render(); scheduleSave();
+      return;
+    }
     if(t.matches('[data-deleteblock]')){
       const b=findBlock(t.dataset.deleteblock);
       if(b && confirm('Permanently delete "'+b.title+'"? This cannot be undone — unlike closing a project, this actually erases its data for good.')){
@@ -1290,6 +1246,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   let dragRegionKey = null;
   document.addEventListener('dragstart', e=>{
+    if(e.target.matches('.cellinput,.idname-input,.initials-input,.btitle,.bpm,.bphase,.bnum,.bmeta')){
+      e.preventDefault();
+      return;
+    }
     const row = e.target.closest && e.target.closest('.region-row');
     if(!row || !e.target.classList.contains('drag-handle')) return;
     dragRegionKey = row.dataset.regionkey;

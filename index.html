@@ -1490,6 +1490,23 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       doRedo();
     }
   });
+  document.addEventListener('keydown', e=>{
+    if(!appStarted) return;
+    if(e.key!=='Delete' && e.key!=='Backspace') return;
+    if(!currentSelection) return;
+    const isMultiCell = currentSelection.rowIds.length>1 || currentSelection.dates.length>1;
+    if(!isMultiCell) return; // a single focused cell keeps its normal typing/backspace behavior
+    const onGridTab = state.activeTab!=='settings' && state.activeTab!=='history';
+    if(!onGridTab) return;
+    e.preventDefault();
+    pushUndo();
+    currentSelection.rowIds.forEach(rid=>{
+      const found = findRow(rid);
+      if(!found) return;
+      currentSelection.dates.forEach(d=>{ found.row.cells[d] = {text:''}; });
+    });
+    render(); scheduleSave();
+  });
 })();
 </script>
 </body>

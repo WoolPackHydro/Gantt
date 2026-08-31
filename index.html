@@ -714,7 +714,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       html += identityLabelHTML(row, {deletable:true, editable:true});
       days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
     });
-    html += '<div class="addrow"><div class="addrow-inner"><button data-addoverflow-region="'+regionKey+'">+ Add person to overflow</button></div></div>';
+    html += '<div class="addrow"><div class="addrow-inner"><button data-addoverflow-region="'+regionKey+'">+ Add person or boat to overflow</button></div></div>';
     activeBlocks.forEach((block,blockIndex)=>{
       const band = blockBand(blockIndex);
       const selClass = selectedProjectIds.has(block.id) ? ' blockhead-selected' : '';
@@ -1315,12 +1315,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     if(t.matches('[data-addoverflow-region]')){
       const rk=t.dataset.addoverflowRegion;
-      const initials=prompt('Initials of the employee to add (must already exist under Settings > Employees):');
-      if(!initials) return;
-      const emp=state.employees.find(e=>e.initials && e.initials.toLowerCase()===initials.trim().toLowerCase());
-      if(!emp){ alert('No employee found with those initials. Add them in Settings first.'); return; }
+      const code=prompt('Initials of the employee, or code of the boat, to add (must already exist under Settings):');
+      if(!code) return;
+      const key = code.trim().toLowerCase();
+      const emp = state.employees.find(e=>e.initials && e.initials.toLowerCase()===key);
+      const boat = !emp ? state.boats.find(b=>b.code && b.code.toLowerCase()===key) : null;
+      if(!emp && !boat){ alert('No employee or boat found with that code. Add it in Settings first.'); return; }
       pushUndo();
-      state.regions[rk].overflow.push({id:newId(), initials:emp.initials, name:emp.name, cells:{}});
+      const label = emp ? emp.initials : boat.code;
+      const name = emp ? emp.name : boat.name;
+      state.regions[rk].overflow.push({id:newId(), initials:label, name:name, cells:{}});
       render(); scheduleSave(); return;
     }
     if(t.matches('[data-addsetitem]')){

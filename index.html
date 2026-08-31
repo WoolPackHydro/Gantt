@@ -53,6 +53,8 @@
   .corner{position:sticky;top:22px;z-index:5;background:#eef0f2;}
   .corner.c1{left:0;}
   .corner.c2{left:34px;display:flex;align-items:center;padding-left:6px;font-size:10.5px;font-weight:600;color:#5a6472;}
+  .namecol-rsz{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;}
+  .namecol-rsz:hover,.namecol-rsz.active{background:rgba(74,134,197,.4);}
   .datehead.today,.cell.today{background:#dbe9f7;}
 
   .subhead{grid-column:1/-1;min-height:18px;}
@@ -101,6 +103,8 @@
   @keyframes flash{0%{box-shadow:inset 0 0 0 999px rgba(74,134,197,.55);}100%{box-shadow:inset 0 0 0 999px rgba(74,134,197,0);}}
 
   .cellselected{outline:2px solid #2f6fb0;outline-offset:-2px;box-shadow:inset 0 0 0 999px rgba(47,111,176,.14);}
+  .fillhandle{position:absolute;width:8px;height:8px;background:#2f6fb0;border:1px solid #fff;cursor:crosshair;z-index:20;display:none;}
+  .fillpreview{outline:2px dashed #2f6fb0;outline-offset:-2px;}
   .daycell.has-comment::after{content:'';position:absolute;top:0;right:0;width:8px;height:8px;background:#c0272d;clip-path:polygon(100% 0,0 0,100% 100%);pointer-events:none;}
 
   .settings-wrap{padding:10px 2px;max-width:640px;}
@@ -635,16 +639,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function isMobileViewport(){
     return window.matchMedia('(max-width: 768px)').matches;
   }
+  let nameColWidth = null;
+  try{ const savedNW = localStorage.getItem('woolpert_namecol_width'); if(savedNW) nameColWidth = parseInt(savedNW,10); }catch(e){}
   function gridTemplateColumns(dayCount){
-    if(isMobileViewport()) return '28px 85px repeat('+dayCount+',58px)';
-    return '34px 150px repeat('+dayCount+',34px)';
+    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px repeat('+dayCount+',58px)';
+    return '34px '+(nameColWidth||150)+'px repeat('+dayCount+',34px)';
   }
   function gridHeaderHTML(days){
     let html = '<div class="cell monthcorner" style="grid-column:span 2;"></div>';
     monthGroups(days).forEach(g=>{
       html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+g.label.toUpperCase()+'</div>';
     });
-    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date</div>';
+    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
     days.forEach(d=> html += dateHeadHTML(d));
     return html;
   }
@@ -946,6 +952,121 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     return [];
   }
+  function groupRowsFor(rowId){
+    // for a role row inside a project, the whole project's rows move together when dragging sideways;
+    // for anything else (PTO, overflow), it's just that one row on its own
+    for(const rk of Object.keys(state.regions)){
+      for(const b of state.regions[rk].blocks){
+        if(b.rows.some(r=>r.id===rowId)) return b.rows.filter(r=>r.type!=='subheader');
+      }
+    }
+    const found = findRow(rowId);
+    return found ? [found.row] : [];
+  }
+  function showFillHandle(rowId, date){
+    const group = groupRowsFor(rowId);
+    if(!group.length) return;
+    const lastRow = group[group.length-1];
+    const targetCell = document.querySelector('.daycell[data-row="'+lastRow.id+'"][data-date="'+date+'"]');
+    const sheetEl = document.getElementById('sheet');
+    if(!targetCell || !sheetEl) return;
+    let handle = document.getElementById('fillhandle');
+    if(!handle){ handle=document.createElement('div'); handle.id='fillhandle'; handle.className='fillhandle'; sheetEl.appendChild(handle); }
+    else if(handle.parentElement !== sheetEl){ sheetEl.appendChild(handle); }
+    handle.style.left = (targetCell.offsetLeft + targetCell.offsetWidth - 5) + 'px';
+    handle.style.top = (targetCell.offsetTop + targetCell.offsetHeight - 5) + 'px';
+    handle.style.display = 'block';
+    handle.dataset.originRow = rowId;
+    handle.dataset.originDate = date;
+  }
+  function hideFillHandle(){ const h=document.getElementById('fillhandle'); if(h) h.style.display='none'; }
+  function clearFillPreview(fd){ (fd.lastHighlighted||[]).forEach(sel=>{ const el=document.querySelector(sel); if(el) el.classList.remove('fillpreview'); }); }
+
+  let fillDrag = null;
+  document.addEventListener('mousedown', e=>{
+    if(e.target && e.target.id==='fillhandle'){
+      e.preventDefault();
+      const originRow=e.target.dataset.originRow, originDate=e.target.dataset.originDate;
+      const group = groupRowsFor(originRow);
+      fillDrag = {
+        originRow, originDate, startX:e.clientX, startY:e.clientY, axis:null,
+        group: group.map(r=>({ id:r.id, cellData: r.cells[originDate] ? JSON.parse(JSON.stringify(r.cells[originDate])) : null })),
+        lastHighlighted: [], currentRange:[originDate], verticalRowIds: []
+      };
+    }
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!fillDrag) return;
+    if(!fillDrag.axis){
+      const dx=Math.abs(e.clientX-fillDrag.startX), dy=Math.abs(e.clientY-fillDrag.startY);
+      if(dx<5 && dy<5) return;
+      fillDrag.axis = (dy>dx) ? 'v' : 'h';
+    }
+    if(fillDrag.axis==='h'){
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cellEl = el && el.closest && el.closest('.daycell');
+      if(!cellEl) return;
+      const targetDate = cellEl.dataset.date;
+      const days = visibleDays();
+      const oi=days.indexOf(fillDrag.originDate), ti=days.indexOf(targetDate);
+      if(oi===-1||ti===-1) return;
+      const lo=Math.min(oi,ti), hi=Math.max(oi,ti);
+      const rangeDates = days.slice(lo,hi+1);
+      clearFillPreview(fillDrag);
+      const newSel=[];
+      fillDrag.group.forEach(g=>{
+        rangeDates.forEach(d=>{
+          const sel='.daycell[data-row="'+g.id+'"][data-date="'+d+'"]';
+          const el2=document.querySelector(sel);
+          if(el2){ el2.classList.add('fillpreview'); newSel.push(sel); }
+        });
+      });
+      fillDrag.lastHighlighted = newSel;
+      fillDrag.currentRange = rangeDates;
+    } else {
+      const siblings = verticalSiblingsFor(fillDrag.originRow).map(r=>r.id);
+      const colCells = Array.from(document.querySelectorAll('.daycell[data-date="'+fillDrag.originDate+'"]'))
+        .filter(el=>siblings.includes(el.dataset.row));
+      const originEl = document.querySelector('.daycell[data-row="'+fillDrag.originRow+'"][data-date="'+fillDrag.originDate+'"]');
+      if(!originEl || !colCells.length) return;
+      const originTop = originEl.getBoundingClientRect().top;
+      const lo=Math.min(originTop,e.clientY), hi=Math.max(originTop,e.clientY);
+      const targets = colCells.filter(el=>{
+        const r=el.getBoundingClientRect(); const mid=r.top+r.height/2;
+        return mid>=lo-2 && mid<=hi+2;
+      });
+      clearFillPreview(fillDrag);
+      const newSel=[];
+      targets.forEach(el=>{ el.classList.add('fillpreview'); newSel.push('.daycell[data-row="'+el.dataset.row+'"][data-date="'+fillDrag.originDate+'"]'); });
+      fillDrag.lastHighlighted = newSel;
+      fillDrag.verticalRowIds = targets.map(el=>el.dataset.row).filter(id=>id!==fillDrag.originRow);
+    }
+  });
+  document.addEventListener('mouseup', e=>{
+    if(!fillDrag) return;
+    if(fillDrag.axis==='v' || fillDrag.axis==='h') pushUndo();
+    if(fillDrag.axis==='v'){
+      const originFound = findRow(fillDrag.originRow);
+      const originCellData = originFound && originFound.row.cells[fillDrag.originDate] ? JSON.parse(JSON.stringify(originFound.row.cells[fillDrag.originDate])) : {text:''};
+      fillDrag.verticalRowIds.forEach(rid=>{
+        const found = findRow(rid);
+        if(found) found.row.cells[fillDrag.originDate] = JSON.parse(JSON.stringify(originCellData));
+      });
+    } else if(fillDrag.axis==='h'){
+      const range = (fillDrag.currentRange && fillDrag.currentRange.length) ? fillDrag.currentRange : [fillDrag.originDate];
+      fillDrag.group.forEach(g=>{
+        const found = findRow(g.id);
+        if(!found) return;
+        range.forEach(d=>{
+          if(d===fillDrag.originDate) return;
+          found.row.cells[d] = g.cellData ? JSON.parse(JSON.stringify(g.cellData)) : {text:''};
+        });
+      });
+    }
+    clearFillPreview(fillDrag);
+    fillDrag = null;
+    render(); scheduleSave();
+  });
 
   // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
   let currentSelection = null; // {rowIds:[...], dates:[...]}
@@ -1043,6 +1164,27 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(fieldResize){ fieldResize.handle.classList.remove('active'); fieldResize = null; }
   });
 
+  let nameColResize = null;
+  document.addEventListener('mousedown', e=>{
+    if(!e.target.matches('.namecol-rsz')) return;
+    e.preventDefault();
+    nameColResize = { startX:e.clientX, startWidth: nameColWidth || (isMobileViewport()?85:150) };
+    e.target.classList.add('active');
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!nameColResize) return;
+    nameColWidth = Math.max(50, nameColResize.startWidth + (e.clientX - nameColResize.startX));
+    const sheetEl = document.getElementById('sheet');
+    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays().length);
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(nameColResize){
+      document.querySelectorAll('.namecol-rsz.active').forEach(el=>el.classList.remove('active'));
+      nameColResize = null;
+      try{ localStorage.setItem('woolpert_namecol_width', String(nameColWidth)); }catch(e){}
+    }
+  });
+
   document.addEventListener('copy', e=>{
     if(!appStarted || !currentSelection) return;
     if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
@@ -1136,6 +1278,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(e.target.matches('.cellinput')){
       e.target.select();
       const [rowId,date] = e.target.dataset.cellinput.split('|');
+      showFillHandle(rowId,date);
       if(!(rangeDrag && rangeDrag.moved)){
         clearSelectionHighlight();
         currentSelection = {rowIds:[rowId], dates:[date]};
@@ -1143,6 +1286,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
   });
   document.addEventListener('focusout', e=>{
+    if(e.target.matches('.cellinput')) hideFillHandle();
     if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
       if(!suppressUndoCapture){
         const current = JSON.stringify(state);

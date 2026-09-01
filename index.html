@@ -68,7 +68,7 @@
   .subrowhead-inner input{font-size:9.5px;font-weight:700;font-style:italic;text-transform:uppercase;letter-spacing:.03em;color:#5a6472;border:none;background:transparent;padding:0 2px;width:180px;}
   .subrowhead-inner .del{opacity:.5;flex-shrink:0;}
   .blockhead{grid-column:1/-1;min-height:19px;border-top:3px solid #000;}
-  .block-addrow{border-bottom:3px solid #000;}
+  .block-addrow-last{border-bottom:3px solid #000;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
   .blockhead input.btitle,.blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum,.blockhead input.bmeta{border:none;background:transparent;font-family:inherit;padding:0 2px;height:16px;line-height:16px;}
   .blockhead input.btitle{font-size:11px;font-weight:600;color:#1c1f22;width:250px;}
@@ -825,7 +825,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
           days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
         }
       });
-      html += '<div class="addrow block-addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
+      const lastBlockCls = blockIndex===activeBlocks.length-1 ? ' block-addrow-last' : '';
+      html += '<div class="addrow'+lastBlockCls+'"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
     });
     let pasteBtn = '';
     if(projectClipboard && projectClipboard.blocks && projectClipboard.blocks.length){

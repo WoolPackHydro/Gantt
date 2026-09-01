@@ -233,6 +233,7 @@
     <span id="selectionBarText"></span>
     <button id="selectionCopyBtn">Copy</button>
     <button id="selectionTransferBtn">Transfer (move) — removes from here once pasted</button>
+    <button id="selectionDeleteBtn">Delete selected</button>
     <button id="selectionClearBtn">Clear selection</button>
   </div>
   <div id="tabcontent"></div>
@@ -814,7 +815,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><input class="bphase" data-field="blockphase|'+block.id+'" value="'+escAttr(block.phaseManager||'')+'"><span class="rsz"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Project #:</span><input class="bnum" data-field="blocknum|'+block.id+'" value="'+escAttr(block.projectNumber||'')+'"><span class="rsz"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"><span class="rsz"></span></span>'
-        + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
+        + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer/delete"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
@@ -1838,6 +1839,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     selectedProjectIds.clear();
     updateSelectionBar();
     render();
+  });
+  document.getElementById('selectionDeleteBtn').addEventListener('click', ()=>{
+    const blocks = [...selectedProjectIds].map(id=>findBlock(id)).filter(Boolean);
+    if(!blocks.length) return;
+    const n = blocks.length;
+    const label = n===1 ? '"'+blocks[0].title+'"' : n+' selected projects';
+    if(!confirm('Mark '+label+' complete and move '+(n===1?'it':'them')+' to History? Data stays on record — nothing is permanently deleted.')) return;
+    pushUndo();
+    blocks.forEach(b=>{ b.archived = true; b.archivedDate = TODAY_ISO; });
+    selectedProjectIds.clear();
+    updateSelectionBar();
+    render(); scheduleSave();
   });
   document.getElementById('selectionClearBtn').addEventListener('click', ()=>{
     selectedProjectIds.clear();

@@ -1586,7 +1586,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-addblock-region]')){
       const rk=t.dataset.addblockRegion;
       pushUndo();
-      state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
+      state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]});
       render(); scheduleSave(); return;
     }
     if(t.matches('[data-addblock-after]')){
@@ -1596,7 +1596,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         const blocks = state.regions[rk].blocks;
         const idx = blocks.findIndex(b=>b.id===afterId);
         if(idx!==-1){
-          blocks.splice(idx+1, 0, {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}}]});
+          blocks.splice(idx+1, 0, {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]});
           break;
         }
       }

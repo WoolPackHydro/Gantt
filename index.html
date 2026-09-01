@@ -20,6 +20,7 @@
   .tabbar{display:flex;flex:1;justify-content:space-between;flex-wrap:wrap;}
   .tabgroup{display:flex;gap:2px;flex-wrap:wrap;align-items:center;}
   .pastdays-inline{font-size:12px;font-family:inherit;color:#5a6472;display:flex;align-items:center;gap:5px;margin-left:14px;padding:6px 4px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .pastdays-inline input{margin:0;position:relative;top:-1px;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
 
@@ -56,6 +57,8 @@
   .corner.c2{left:34px;display:flex;align-items:center;padding-left:6px;font-size:10.5px;font-weight:600;color:#5a6472;}
   .namecol-rsz{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;}
   .namecol-rsz:hover,.namecol-rsz.active{background:rgba(74,134,197,.4);}
+  .daycol-rsz{position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;}
+  .daycol-rsz:hover,.daycol-rsz.active{background:rgba(74,134,197,.4);}
   .datehead.today,.cell.today{background:#dbe9f7;}
 
   .subhead{grid-column:1/-1;min-height:18px;}
@@ -85,7 +88,7 @@
   .blockhead input:focus,.blockhead textarea:focus{outline:1px solid #4a86c5;}
   .blockhead .del{opacity:.5;flex:0 0 auto;}
 
-  .monthhead{position:sticky;top:0;z-index:4;background:#0b3a4a;color:#fff;font-size:15px;font-weight:700;letter-spacing:.04em;padding:2px 10px;height:22px;display:flex;align-items:center;}
+  .monthhead{position:sticky;top:0;z-index:4;background:#0b3a4a;color:#fff;font-size:15px;font-weight:700;letter-spacing:.04em;padding:2px 10px;height:22px;display:flex;align-items:center;overflow:hidden;white-space:nowrap;}
   .monthcorner{position:sticky;top:0;left:0;z-index:6;background:#0b3a4a;height:22px;}
 
   .addrow,.addblock{grid-column:1/-1;min-height:19px;}
@@ -674,7 +677,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const isToday = d===TODAY_ISO;
     const todayClass = isToday ? ' today' : '';
     const style = isToday ? '' : ' style="background:'+monthBand(d)+'"';
-    return '<div class="cell datehead'+todayClass+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span></div>';
+    return '<div class="cell datehead'+todayClass+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" title="Drag to widen every day column"></span></div>';
   }
   function monthGroups(days){
     const groups = [];
@@ -691,14 +694,22 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   let nameColWidth = null;
   try{ const savedNW = localStorage.getItem('woolpert_namecol_width'); if(savedNW) nameColWidth = parseInt(savedNW,10); }catch(e){}
+  let dayColWidth = null;
+  try{ const savedDW = localStorage.getItem('woolpert_daycol_width'); if(savedDW) dayColWidth = parseInt(savedDW,10); }catch(e){}
+  function currentDayColWidth(){
+    return dayColWidth || (isMobileViewport() ? 58 : 34);
+  }
   function gridTemplateColumns(dayCount){
-    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px repeat('+dayCount+',58px)';
-    return '34px '+(nameColWidth||150)+'px repeat('+dayCount+',34px)';
+    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px repeat('+dayCount+','+currentDayColWidth()+'px)';
+    return '34px '+(nameColWidth||150)+'px repeat('+dayCount+','+currentDayColWidth()+'px)';
   }
   function gridHeaderHTML(days){
     let html = '<div class="cell monthcorner" style="grid-column:span 2;"></div>';
+    const dw = currentDayColWidth();
     monthGroups(days).forEach(g=>{
-      html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+g.label.toUpperCase()+'</div>';
+      const widthPx = g.span * dw;
+      const label = widthPx >= 82 ? g.label.toUpperCase() : '';
+      html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+label+'</div>';
     });
     html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
     days.forEach(d=> html += dateHeadHTML(d));
@@ -719,9 +730,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '<div class="cell lblname row" data-row="'+row.id+'"><div class="lblname-inner">'+nameField+del+'</div></div>';
   }
   function roleLabelHTML(row, band){
-    const bg = band ? ' style="background:'+band+'"' : '';
-    return '<div class="cell lblnum row" data-row="'+row.id+'"'+bg+'><div class="lblnum-inner"></div></div>'
-      + '<div class="cell lblname row" data-row="'+row.id+'"'+bg+'><div class="lblname-inner"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
+    const bg = band ? 'background:'+band+';' : '';
+    return '<div class="cell lblname row" data-row="'+row.id+'" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
   }
   function subrowHeaderHTML(row){
     return '<div class="subrowhead"><div class="subrowhead-inner">'
@@ -775,7 +785,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const band = blockBand(blockIndex);
       const selClass = selectedProjectIds.has(block.id) ? ' blockhead-selected' : '';
       html += '<div class="blockhead'+selClass+'" style="background:'+reg.tint+'"><div class="blockhead-inner">'
-        + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="movebtn" data-moveblock-up="'+block.id+'" title="Move project up">↑</button>'
         + '<button class="movebtn" data-moveblock-down="'+block.id+'" title="Move project down">↓</button>'
         + '<span class="titlewrap"><input class="btitle" data-field="blocktitle|'+block.id+'" placeholder="Project name" value="'+escAttr(block.title)+'"><span class="rsz"></span></span>'
@@ -783,6 +792,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><input class="bphase" data-field="blockphase|'+block.id+'" value="'+escAttr(block.phaseManager||'')+'"><span class="rsz"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Project #:</span><input class="bnum" data-field="blocknum|'+block.id+'" value="'+escAttr(block.projectNumber||'')+'"><span class="rsz"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"><span class="rsz"></span></span>'
+        + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
@@ -1006,17 +1016,6 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     return [];
   }
-  function groupRowsFor(rowId){
-    // for a role row inside a project, the whole project's rows move together when dragging sideways;
-    // for anything else (PTO, overflow), it's just that one row on its own
-    for(const rk of Object.keys(state.regions)){
-      for(const b of state.regions[rk].blocks){
-        if(b.rows.some(r=>r.id===rowId)) return b.rows.filter(r=>r.type!=='subheader');
-      }
-    }
-    const found = findRow(rowId);
-    return found ? [found.row] : [];
-  }
   function showFillHandle(rowId, date){
     const usingSelection = currentSelection && currentSelection.rowIds.includes(rowId) && currentSelection.dates.includes(date)
       && (currentSelection.rowIds.length>1 || currentSelection.dates.length>1);
@@ -1027,8 +1026,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       handleDate = currentSelection.dates[currentSelection.dates.length-1]; // bottom-right of the SELECTION, not wherever the drag started
       patternDates = currentSelection.dates.slice();
     } else {
-      group = groupRowsFor(rowId);
-      handleRowId = group.length ? group[group.length-1].id : rowId;
+      const found = findRow(rowId);
+      group = found ? [found.row] : [];
+      handleRowId = rowId;
       handleDate = date;
       patternDates = [date];
     }
@@ -1259,6 +1259,27 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       document.querySelectorAll('.namecol-rsz.active').forEach(el=>el.classList.remove('active'));
       nameColResize = null;
       try{ localStorage.setItem('woolpert_namecol_width', String(nameColWidth)); }catch(e){}
+    }
+  });
+
+  let dayColResize = null;
+  document.addEventListener('mousedown', e=>{
+    if(!e.target.matches('.daycol-rsz')) return;
+    e.preventDefault();
+    dayColResize = { startX:e.clientX, startWidth: dayColWidth || (isMobileViewport()?58:34) };
+    e.target.classList.add('active');
+  });
+  document.addEventListener('mousemove', e=>{
+    if(!dayColResize) return;
+    dayColWidth = Math.max(24, dayColResize.startWidth + (e.clientX - dayColResize.startX));
+    const sheetEl = document.getElementById('sheet');
+    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays().length);
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(dayColResize){
+      document.querySelectorAll('.daycol-rsz.active').forEach(el=>el.classList.remove('active'));
+      dayColResize = null;
+      try{ localStorage.setItem('woolpert_daycol_width', String(dayColWidth)); }catch(e){}
     }
   });
 

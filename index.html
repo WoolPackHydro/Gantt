@@ -371,15 +371,31 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   let focusUndoSnapshot = null;
   let suppressUndoCapture = false; // true while applying a remote sync update, so someone else's edit never lands in our undo history
   // A full render() rebuilds the whole grid's HTML, which destroys and recreates every input —
-  // including whatever cell someone is actively typing into. If that happens mid-keystroke it
-  // yanks their focus away. The data itself is safe either way (every keystroke already writes
-  // straight into `state`), so while focus is in an editable field we hold off on the *visual*
-  // rebuild and apply it the moment they move on, rather than mid-edit.
-  let renderDeferred = false;
-  let deferredFlashCells = null;
-  function isEditingField(){
+  // including whatever cell someone is actively focused in, active typing or just paused. Rather
+  // than guess at *when* it's safe to redraw around that (a deferral-with-timeout approach ended
+  // up forcing people out after a short pause, which was its own bug), every render captures
+  // exactly what was focused and the cursor/selection position beforehand, and restores it
+  // immediately after — so a rebuild is never something the person editing even notices.
+  let programmaticFocusRestore = false;
+  function captureFocusState(){
     const el = document.activeElement;
-    return !!(el && el.matches && el.matches('input,select,textarea'));
+    if(!el || !el.matches) return null;
+    if(el.matches('.cellinput')) return { type:'cellinput', key: el.dataset.cellinput, selStart: el.selectionStart, selEnd: el.selectionEnd };
+    if(el.matches('[data-field]')) return { type:'field', key: el.dataset.field, selStart: el.selectionStart, selEnd: el.selectionEnd };
+    return null;
+  }
+  function restoreFocusState(saved){
+    if(!saved) return;
+    let el = null;
+    if(saved.type==='cellinput') el = Array.from(document.querySelectorAll('.cellinput')).find(x=>x.dataset.cellinput===saved.key);
+    else if(saved.type==='field') el = Array.from(document.querySelectorAll('[data-field]')).find(x=>x.dataset.field===saved.key);
+    if(!el) return;
+    programmaticFocusRestore = true;
+    el.focus({preventScroll:true});
+    if(typeof saved.selStart==='number'){
+      try{ el.setSelectionRange(saved.selStart, saved.selEnd); }catch(e){}
+    }
+    programmaticFocusRestore = false;
   }
   function commitUndoSnapshot(beforeJson){
     undoStack.push(beforeJson);
@@ -549,12 +565,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         merged.hidePast = state.hidePast;
         state = merged; lastSyncedJSON = json; lastDiffBaseJSON = json;
         suppressUndoCapture = true;
-        if(isEditingField()){
-          renderDeferred = true;
-          deferredFlashCells = deferredFlashCells ? deferredFlashCells.concat(changed) : changed;
-        } else {
-          render(); flashCells(changed);
-        }
+        render(); flashCells(changed);
         suppressUndoCapture = false;
       }, (err)=>{
         console.error('Firebase read failed — check your databaseURL and security rules.', err);
@@ -1027,6 +1038,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const prev = document.querySelector('.sheetscroll');
       if(prev){ scrollTop=prev.scrollTop; scrollLeft=prev.scrollLeft; }
     }
+    const savedFocus = captureFocusState();
     renderTabbar();
     const c = document.getElementById('tabcontent');
     if(state.activeTab==='settings') renderSettingsTab(c);
@@ -1035,6 +1047,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     else renderRegionTab(c, state.activeTab);
     const next = document.querySelector('.sheetscroll');
     if(next && preserveScroll!==false){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
+    restoreFocusState(savedFocus);
     updateMobileWindowLabel();
   }
   function updateMobileWindowLabel(){
@@ -1465,7 +1478,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(targetEl){ e.preventDefault(); targetEl.focus(); }
   });
   document.addEventListener('focusin', e=>{
-    if(e.target.matches('input,select,textarea') && appStarted){
+    if(e.target.matches('input,select,textarea') && appStarted && !programmaticFocusRestore){
       focusUndoSnapshot = JSON.stringify(state);
     }
     if(e.target.matches('.cellinput')){
@@ -1487,29 +1500,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
       focusUndoSnapshot = null;
     }
-    if(renderDeferred){
-      // Yield one tick first: if this blur is just moving to the next cell (e.g. pressing Tab),
-      // the new cell's focusin will already have landed by the time this runs, so isEditingField()
-      // correctly still reports true and we keep deferring instead of rendering mid-transition.
-      setTimeout(()=>{ if(renderDeferred && !isEditingField()) applyDeferredRender(); }, 0);
-    }
   });
-  function applyDeferredRender(){
-    if(!renderDeferred) return;
-    renderDeferred = false;
-    const changed = deferredFlashCells; deferredFlashCells = null;
-    render(); if(changed) flashCells(changed);
-  }
-  let lastKeystrokeTime = 0;
-  document.addEventListener('input', ()=>{ lastKeystrokeTime = Date.now(); }, true);
-  // Safety net: someone can leave a cell focused without actively typing (reading, thinking,
-  // stepped away) — don't leave them looking at stale data indefinitely just because focus
-  // never left the field. Once there's been a pause since the last keystroke, catch up, even
-  // though the field is still technically focused — a brief pause is a much less disruptive
-  // moment to redraw than mid-keystroke.
-  setInterval(()=>{
-    if(renderDeferred && Date.now()-lastKeystrokeTime > 2000) applyDeferredRender();
-  }, 2000);
   document.addEventListener('change', e=>{
     const t=e.target;
     if(t.matches('.initials-input')){

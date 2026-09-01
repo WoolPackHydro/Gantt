@@ -160,6 +160,7 @@
   .selection-bar button:hover{background:#f2f2f2;}
   .blockselect{margin-right:2px;cursor:pointer;flex-shrink:0;}
   .blockhead-selected{outline:2px solid #2f6fb0;outline-offset:-2px;}
+  .mobile-window-nav{display:none;}
 
   @media (max-width: 768px){
     /* The tab row was wrapping combined with space-between, which on a narrow screen
@@ -175,6 +176,13 @@
     .movebtn{padding:5px 7px!important;font-size:12px!important;}
     .del,.tablebtn,.copybtn{padding:3px 6px;font-size:12px;}
     .boldtoggle,.setrow input[type=color]{transform:scale(1.15);}
+    .mobile-window-nav{display:flex;align-items:center;justify-content:center;gap:10px;padding:6px 8px;border-bottom:1px solid #c9c9c9;background:#f4f8fa;}
+    .mobile-window-nav button{font-size:12px;padding:6px 12px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;}
+    .mobile-window-nav span{font-size:11.5px;color:#5a6472;font-weight:600;}
+    .lblnum{position:sticky;left:0;}
+    .lblname{position:sticky;left:28px;}
+    .blockhead-inner,.subhead-inner,.addrow-inner,.addblock-inner{position:sticky;left:0;}
+    .subrowhead-inner{position:sticky;left:16px;}
   }
 </style>
 </head>
@@ -204,6 +212,11 @@
   </header>
   <div class="tabrow">
     <div class="tabbar" id="tabbar"></div>
+  </div>
+  <div class="mobile-window-nav">
+    <button id="mobilePrevWindow">◀ Earlier</button>
+    <span id="mobileWindowLabel"></span>
+    <button id="mobileNextWindow">Later ▶</button>
   </div>
   <div id="selectionBar" class="selection-bar" style="display:none">
     <span id="selectionBarText"></span>
@@ -587,7 +600,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
   }
 
-  function visibleDays(){ return state.hidePast ? ALL_DAYS.filter(d=>d>=TODAY_ISO) : ALL_DAYS; }
+  let mobileWindowStart = 0;
+  const MOBILE_WINDOW_SIZE = 21, MOBILE_WINDOW_SHIFT = 7;
+  function visibleDays(){
+    const base = state.hidePast ? ALL_DAYS.filter(d=>d>=TODAY_ISO) : ALL_DAYS;
+    if(!isMobileViewport()) return base;
+    const start = Math.max(0, Math.min(mobileWindowStart, Math.max(0, base.length-1)));
+    return base.slice(start, start+MOBILE_WINDOW_SIZE);
+  }
   function cellStyle(cellObj, fallbackBg){
     if(cellObj){
       const bg = cellObj.color || colorForText(cellObj.text);
@@ -911,6 +931,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   let scrollSyncRAF = null;
   function syncFrozenColumns(scroller){
     if(!scroller) return;
+    if(isMobileViewport()) return; // mobile uses native CSS sticky instead — see the mobile media query
     if(scrollSyncRAF) cancelAnimationFrame(scrollSyncRAF);
     scrollSyncRAF = requestAnimationFrame(()=>{
       scrollSyncRAF = null;
@@ -939,6 +960,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       next.addEventListener('scroll', ()=>syncFrozenColumns(next), {passive:true});
       syncFrozenColumns(next);
     }
+    updateMobileWindowLabel();
+  }
+  function updateMobileWindowLabel(){
+    const label = document.getElementById('mobileWindowLabel');
+    if(!label) return;
+    if(!isMobileViewport() || !ALL_DAYS.length){ label.textContent=''; return; }
+    const days = visibleDays();
+    if(!days.length){ label.textContent=''; return; }
+    const fmt = d=>{ const dt=new Date(d+'T00:00:00'); return (dt.getMonth()+1)+'/'+dt.getDate(); };
+    label.textContent = fmt(days[0])+' – '+fmt(days[days.length-1]);
   }
 
   function verticalSiblingsFor(rowId){
@@ -963,21 +994,23 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const found = findRow(rowId);
     return found ? [found.row] : [];
   }
-  function fillGroupFor(rowId, date){
-    // if there's an active multi-row selection that includes this cell, drag the whole
-    // selected set of rows together — each keeping its own value — instead of falling
-    // back to "just this one row" (which is what project-grouping alone would give for
-    // rows that aren't part of the same project, like several overflow/PTO people).
-    if(currentSelection && currentSelection.rowIds.length>1 && currentSelection.rowIds.includes(rowId) && currentSelection.dates.includes(date)){
-      return currentSelection.rowIds.map(id=>{ const f=findRow(id); return f?f.row:null; }).filter(Boolean);
-    }
-    return groupRowsFor(rowId);
-  }
   function showFillHandle(rowId, date){
-    const group = fillGroupFor(rowId, date);
+    const usingSelection = currentSelection && currentSelection.rowIds.includes(rowId) && currentSelection.dates.includes(date)
+      && (currentSelection.rowIds.length>1 || currentSelection.dates.length>1);
+    let group, handleRowId, handleDate, patternDates;
+    if(usingSelection){
+      group = currentSelection.rowIds.map(id=>{ const f=findRow(id); return f?f.row:null; }).filter(Boolean);
+      handleRowId = currentSelection.rowIds[currentSelection.rowIds.length-1];
+      handleDate = currentSelection.dates[currentSelection.dates.length-1]; // bottom-right of the SELECTION, not wherever the drag started
+      patternDates = currentSelection.dates.slice();
+    } else {
+      group = groupRowsFor(rowId);
+      handleRowId = group.length ? group[group.length-1].id : rowId;
+      handleDate = date;
+      patternDates = [date];
+    }
     if(!group.length) return;
-    const lastRow = group[group.length-1];
-    const targetCell = document.querySelector('.daycell[data-row="'+lastRow.id+'"][data-date="'+date+'"]');
+    const targetCell = document.querySelector('.daycell[data-row="'+handleRowId+'"][data-date="'+handleDate+'"]');
     const sheetEl = document.getElementById('sheet');
     if(!targetCell || !sheetEl) return;
     let handle = document.getElementById('fillhandle');
@@ -988,6 +1021,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     handle.style.display = 'block';
     handle.dataset.originRow = rowId;
     handle.dataset.originDate = date;
+    handle.dataset.groupIds = JSON.stringify(group.map(r=>r.id));
+    handle.dataset.patternDates = JSON.stringify(patternDates);
   }
   function hideFillHandle(){ const h=document.getElementById('fillhandle'); if(h) h.style.display='none'; }
   function clearFillPreview(fd){ (fd.lastHighlighted||[]).forEach(sel=>{ const el=document.querySelector(sel); if(el) el.classList.remove('fillpreview'); }); }
@@ -997,11 +1032,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(e.target && e.target.id==='fillhandle'){
       e.preventDefault();
       const originRow=e.target.dataset.originRow, originDate=e.target.dataset.originDate;
-      const group = fillGroupFor(originRow, originDate);
+      const groupIds = JSON.parse(e.target.dataset.groupIds || '[]');
+      const patternDates = JSON.parse(e.target.dataset.patternDates || '[]');
+      const group = groupIds.map(id=>{ const f=findRow(id); return f?f.row:null; }).filter(Boolean);
       fillDrag = {
         originRow, originDate, startX:e.clientX, startY:e.clientY, axis:null,
-        group: group.map(r=>({ id:r.id, cellData: r.cells[originDate] ? JSON.parse(JSON.stringify(r.cells[originDate])) : null })),
-        lastHighlighted: [], currentRange:[originDate], verticalRowIds: []
+        patternDates,
+        group: group.map(r=>({ id:r.id, patternCells: patternDates.map(d=> r.cells[d] ? JSON.parse(JSON.stringify(r.cells[d])) : null) })),
+        lastHighlighted: [], currentRange: [], verticalRowIds: []
       };
     }
   });
@@ -1018,10 +1056,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(!cellEl) return;
       const targetDate = cellEl.dataset.date;
       const days = visibleDays();
-      const oi=days.indexOf(fillDrag.originDate), ti=days.indexOf(targetDate);
-      if(oi===-1||ti===-1) return;
-      const lo=Math.min(oi,ti), hi=Math.max(oi,ti);
-      const rangeDates = days.slice(lo,hi+1);
+      const patternEnd = fillDrag.patternDates[fillDrag.patternDates.length-1];
+      const endIdx = days.indexOf(patternEnd), ti = days.indexOf(targetDate);
+      if(endIdx===-1||ti===-1) return;
+      const lo=Math.min(endIdx,ti), hi=Math.max(endIdx,ti);
+      const rangeDates = days.slice(lo,hi+1).filter(d=>!fillDrag.patternDates.includes(d));
       clearFillPreview(fillDrag);
       const newSel=[];
       fillDrag.group.forEach(g=>{
@@ -1063,13 +1102,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         if(found) found.row.cells[fillDrag.originDate] = JSON.parse(JSON.stringify(originCellData));
       });
     } else if(fillDrag.axis==='h'){
-      const range = (fillDrag.currentRange && fillDrag.currentRange.length) ? fillDrag.currentRange : [fillDrag.originDate];
+      const range = fillDrag.currentRange || [];
+      const days = visibleDays();
+      const patternLen = fillDrag.patternDates.length;
+      const patternStartIdx = days.indexOf(fillDrag.patternDates[0]);
       fillDrag.group.forEach(g=>{
         const found = findRow(g.id);
         if(!found) return;
         range.forEach(d=>{
-          if(d===fillDrag.originDate) return;
-          found.row.cells[d] = g.cellData ? JSON.parse(JSON.stringify(g.cellData)) : {text:''};
+          const dIdx = days.indexOf(d);
+          const offset = ((dIdx - patternStartIdx) % patternLen + patternLen) % patternLen;
+          const cellData = g.patternCells[offset];
+          found.row.cells[d] = cellData ? JSON.parse(JSON.stringify(cellData)) : {text:''};
         });
       });
     }
@@ -1640,6 +1684,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.getElementById('undoBtn').addEventListener('click', doUndo);
   document.getElementById('redoBtn').addEventListener('click', doRedo);
+  document.getElementById('mobilePrevWindow').addEventListener('click', ()=>{
+    mobileWindowStart = Math.max(0, mobileWindowStart - MOBILE_WINDOW_SHIFT);
+    render(false);
+  });
+  document.getElementById('mobileNextWindow').addEventListener('click', ()=>{
+    mobileWindowStart += MOBILE_WINDOW_SHIFT;
+    render(false);
+  });
   document.getElementById('selectionCopyBtn').addEventListener('click', ()=>{
     const blocks = [...selectedProjectIds].map(id=>findBlock(id)).filter(Boolean);
     if(!blocks.length) return;

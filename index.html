@@ -61,6 +61,8 @@
   .daycol-rsz{position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;}
   .daycol-rsz:hover,.daycol-rsz.active{background:rgba(74,134,197,.4);}
   .datehead.today,.cell.today{background:#dbe9f7;}
+  .datehead.col-active{background:#2f6fb0!important;color:#fff!important;}
+  .datehead.col-active .dow,.datehead.col-active .num{color:#fff;}
 
   .subhead{grid-column:1/-1;min-height:18px;}
   .subhead-inner{position:sticky;left:0;display:inline-block;color:#3c3c3c;font-size:10.5px;font-weight:600;padding:2px 6px;white-space:nowrap;}
@@ -714,7 +716,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const isToday = d===TODAY_ISO;
     const todayClass = isToday ? ' today' : '';
     const style = isToday ? '' : ' style="background:'+monthBand(d)+'"';
-    return '<div class="cell datehead'+todayClass+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" data-rsz-date="'+d+'" title="Drag to widen just this column"></span></div>';
+    return '<div class="cell datehead'+todayClass+'" data-date="'+d+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" data-rsz-date="'+d+'" title="Drag to widen just this column"></span></div>';
   }
   function monthGroups(days){
     const groups = [];
@@ -1494,6 +1496,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         clearSelectionHighlight();
         currentSelection = {rowIds:[rowId], dates:[date]};
       }
+      const prevActive = document.querySelector('.datehead.col-active');
+      if(prevActive) prevActive.classList.remove('col-active');
+      const headEl = document.querySelector('.datehead[data-date="'+date+'"]');
+      if(headEl) headEl.classList.add('col-active');
     }
   });
   document.addEventListener('focusout', e=>{

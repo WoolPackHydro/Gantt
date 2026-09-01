@@ -677,7 +677,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const isToday = d===TODAY_ISO;
     const todayClass = isToday ? ' today' : '';
     const style = isToday ? '' : ' style="background:'+monthBand(d)+'"';
-    return '<div class="cell datehead'+todayClass+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" title="Drag to widen every day column"></span></div>';
+    return '<div class="cell datehead'+todayClass+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" data-rsz-date="'+d+'" title="Drag to widen just this column"></span></div>';
   }
   function monthGroups(days){
     const groups = [];
@@ -694,20 +694,28 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   let nameColWidth = null;
   try{ const savedNW = localStorage.getItem('woolpert_namecol_width'); if(savedNW) nameColWidth = parseInt(savedNW,10); }catch(e){}
-  let dayColWidth = null;
-  try{ const savedDW = localStorage.getItem('woolpert_daycol_width'); if(savedDW) dayColWidth = parseInt(savedDW,10); }catch(e){}
-  function currentDayColWidth(){
-    return dayColWidth || (isMobileViewport() ? 58 : 34);
+  let perColWidths = {}; // perColWidths[tabId][dateIso] = widthPx — a personal, per-section, per-column override
+  try{ const savedPW = localStorage.getItem('woolpert_percol_widths'); if(savedPW) perColWidths = JSON.parse(savedPW); }catch(e){}
+  function savePerColWidths(){ try{ localStorage.setItem('woolpert_percol_widths', JSON.stringify(perColWidths)); }catch(e){} }
+  function defaultDayColWidth(){
+    return isMobileViewport() ? 58 : 34;
   }
-  function gridTemplateColumns(dayCount){
-    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px repeat('+dayCount+','+currentDayColWidth()+'px)';
-    return '34px '+(nameColWidth||150)+'px repeat('+dayCount+','+currentDayColWidth()+'px)';
+  function gridTemplateColumns(days){
+    const tabWidths = perColWidths[state.activeTab] || {};
+    const def = defaultDayColWidth();
+    const cols = days.map(d=>(tabWidths[d]||def)+'px').join(' ');
+    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px '+cols;
+    return '34px '+(nameColWidth||150)+'px '+cols;
   }
   function gridHeaderHTML(days){
     let html = '<div class="cell monthcorner" style="grid-column:span 2;"></div>';
-    const dw = currentDayColWidth();
+    const tabWidths = perColWidths[state.activeTab] || {};
+    const def = defaultDayColWidth();
+    let dayIdx = 0;
     monthGroups(days).forEach(g=>{
-      const widthPx = g.span * dw;
+      let widthPx = 0;
+      for(let i=0;i<g.span;i++){ widthPx += tabWidths[days[dayIdx+i]] || def; }
+      dayIdx += g.span;
       const label = widthPx >= 82 ? g.label.toUpperCase() : '';
       html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+label+'</div>';
     });
@@ -765,7 +773,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       html += identityLabelHTML(emp, {deletable:false});
       days.forEach(d=> html += dayCellHTML(emp,d,monthBand(d)));
     });
-    container.innerHTML = '<div class="sheetscroll"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days.length)+'">'+html+'</div></div>';
+    container.innerHTML = '<div class="sheetscroll"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days)+'">'+html+'</div></div>';
   }
 
   function renderRegionTab(container, regionKey){
@@ -825,7 +833,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + tabledBlocks.map(b=>'<div class="archived-row"><span>'+escAttr(b.title)+'</span><button class="btn" data-untableblock="'+b.id+'">Bring back</button></div>').join('')
         + '</details>';
     }
-    container.innerHTML = '<div class="sheetscroll" style="border-top:3px solid '+reg.color+'"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days.length)+'">'+html+'</div></div>'+archivedHTML;
+    container.innerHTML = '<div class="sheetscroll" style="border-top:3px solid '+reg.color+'"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days)+'">'+html+'</div></div>'+archivedHTML;
   }
 
   function settingsListHTML(listKey, items, fields){
@@ -1070,7 +1078,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!fillDrag) return;
     if(!fillDrag.axis){
       const dx=Math.abs(e.clientX-fillDrag.startX), dy=Math.abs(e.clientY-fillDrag.startY);
-      if(dx<5 && dy<5) return;
+      if(dx<8 && dy<8) return;
       fillDrag.axis = (dy>dx) ? 'v' : 'h';
     }
     if(fillDrag.axis==='h'){
@@ -1103,26 +1111,35 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(!originEl || !colCells.length) return;
       const originTop = originEl.getBoundingClientRect().top;
       const lo=Math.min(originTop,e.clientY), hi=Math.max(originTop,e.clientY);
-      const targets = colCells.filter(el=>{
+      const targetRowIds = colCells.filter(el=>{
         const r=el.getBoundingClientRect(); const mid=r.top+r.height/2;
         return mid>=lo-2 && mid<=hi+2;
-      });
+      }).map(el=>el.dataset.row).filter(id=>id!==fillDrag.originRow);
       clearFillPreview(fillDrag);
       const newSel=[];
-      targets.forEach(el=>{ el.classList.add('fillpreview'); newSel.push('.daycell[data-row="'+el.dataset.row+'"][data-date="'+fillDrag.originDate+'"]'); });
+      targetRowIds.forEach(rid=>{
+        fillDrag.patternDates.forEach(d=>{
+          const sel='.daycell[data-row="'+rid+'"][data-date="'+d+'"]';
+          const el2=document.querySelector(sel);
+          if(el2){ el2.classList.add('fillpreview'); newSel.push(sel); }
+        });
+      });
       fillDrag.lastHighlighted = newSel;
-      fillDrag.verticalRowIds = targets.map(el=>el.dataset.row).filter(id=>id!==fillDrag.originRow);
+      fillDrag.verticalRowIds = targetRowIds;
     }
   });
   document.addEventListener('mouseup', e=>{
     if(!fillDrag) return;
     if(fillDrag.axis==='v' || fillDrag.axis==='h') pushUndo();
     if(fillDrag.axis==='v'){
-      const originFound = findRow(fillDrag.originRow);
-      const originCellData = originFound && originFound.row.cells[fillDrag.originDate] ? JSON.parse(JSON.stringify(originFound.row.cells[fillDrag.originDate])) : {text:''};
+      const originEntry = fillDrag.group.find(g=>g.id===fillDrag.originRow);
       fillDrag.verticalRowIds.forEach(rid=>{
         const found = findRow(rid);
-        if(found) found.row.cells[fillDrag.originDate] = JSON.parse(JSON.stringify(originCellData));
+        if(!found) return;
+        fillDrag.patternDates.forEach((d,i)=>{
+          const cellData = originEntry ? originEntry.patternCells[i] : null;
+          found.row.cells[d] = cellData ? JSON.parse(JSON.stringify(cellData)) : {text:''};
+        });
       });
     } else if(fillDrag.axis==='h'){
       const range = fillDrag.currentRange || [];
@@ -1252,7 +1269,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!nameColResize) return;
     nameColWidth = Math.max(50, nameColResize.startWidth + (e.clientX - nameColResize.startX));
     const sheetEl = document.getElementById('sheet');
-    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays().length);
+    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays());
   });
   document.addEventListener('mouseup', ()=>{
     if(nameColResize){
@@ -1266,20 +1283,24 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   document.addEventListener('mousedown', e=>{
     if(!e.target.matches('.daycol-rsz')) return;
     e.preventDefault();
-    dayColResize = { startX:e.clientX, startWidth: dayColWidth || (isMobileViewport()?58:34) };
+    const d = e.target.dataset.rszDate;
+    const tabWidths = perColWidths[state.activeTab] || {};
+    dayColResize = { date:d, startX:e.clientX, startWidth: tabWidths[d] || defaultDayColWidth() };
     e.target.classList.add('active');
   });
   document.addEventListener('mousemove', e=>{
     if(!dayColResize) return;
-    dayColWidth = Math.max(24, dayColResize.startWidth + (e.clientX - dayColResize.startX));
+    const w = Math.max(20, dayColResize.startWidth + (e.clientX - dayColResize.startX));
+    if(!perColWidths[state.activeTab]) perColWidths[state.activeTab] = {};
+    perColWidths[state.activeTab][dayColResize.date] = w;
     const sheetEl = document.getElementById('sheet');
-    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays().length);
+    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays());
   });
   document.addEventListener('mouseup', ()=>{
     if(dayColResize){
       document.querySelectorAll('.daycol-rsz.active').forEach(el=>el.classList.remove('active'));
       dayColResize = null;
-      try{ localStorage.setItem('woolpert_daycol_width', String(dayColWidth)); }catch(e){}
+      savePerColWidths();
     }
   });
 

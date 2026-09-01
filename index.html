@@ -1794,6 +1794,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   document.addEventListener('keydown', e=>{
     if(!appStarted) return;
     if(e.key!=='Delete' && e.key!=='Backspace') return;
+    if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
     if(!currentSelection) return;
     const isMultiCell = currentSelection.rowIds.length>1 || currentSelection.dates.length>1;
     if(!isMultiCell) return; // a single focused cell keeps its normal typing/backspace behavior

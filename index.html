@@ -370,6 +370,17 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   let undoStack = [], redoStack = [];
   let focusUndoSnapshot = null;
   let suppressUndoCapture = false; // true while applying a remote sync update, so someone else's edit never lands in our undo history
+  // A full render() rebuilds the whole grid's HTML, which destroys and recreates every input —
+  // including whatever cell someone is actively typing into. If that happens mid-keystroke it
+  // yanks their focus away. The data itself is safe either way (every keystroke already writes
+  // straight into `state`), so while focus is in an editable field we hold off on the *visual*
+  // rebuild and apply it the moment they move on, rather than mid-edit.
+  let renderDeferred = false;
+  let deferredFlashCells = null;
+  function isEditingField(){
+    const el = document.activeElement;
+    return !!(el && el.matches && el.matches('input,select,textarea'));
+  }
   function commitUndoSnapshot(beforeJson){
     undoStack.push(beforeJson);
     if(undoStack.length>MAX_UNDO) undoStack.shift();
@@ -538,7 +549,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         merged.hidePast = state.hidePast;
         state = merged; lastSyncedJSON = json; lastDiffBaseJSON = json;
         suppressUndoCapture = true;
-        render(); flashCells(changed);
+        if(isEditingField()){
+          renderDeferred = true;
+          deferredFlashCells = deferredFlashCells ? deferredFlashCells.concat(changed) : changed;
+        } else {
+          render(); flashCells(changed);
+        }
         suppressUndoCapture = false;
       }, (err)=>{
         console.error('Firebase read failed — check your databaseURL and security rules.', err);
@@ -807,14 +823,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     activeBlocks.forEach((block,blockIndex)=>{
       const band = blockBand(blockIndex);
       const selClass = selectedProjectIds.has(block.id) ? ' blockhead-selected' : '';
+      const fw = block.fieldWidths || {};
+      const wStyle = k => fw[k] ? ' style="width:'+fw[k]+'px"' : '';
       html += '<div class="blockhead'+selClass+'" style="background:'+reg.tint+'"><div class="blockhead-inner">'
         + '<button class="movebtn" data-moveblock-up="'+block.id+'" title="Move project up">↑</button>'
         + '<button class="movebtn" data-moveblock-down="'+block.id+'" title="Move project down">↓</button>'
-        + '<span class="titlewrap"><input class="btitle" data-field="blocktitle|'+block.id+'" placeholder="Project name" value="'+escAttr(block.title)+'"><span class="rsz"></span></span>'
-        + '<span class="fieldbox"><span class="fieldbox-label">PM:</span><input class="bpm" data-field="blockpm|'+block.id+'" value="'+escAttr(block.pm||'')+'"><span class="rsz"></span></span>'
-        + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><input class="bphase" data-field="blockphase|'+block.id+'" value="'+escAttr(block.phaseManager||'')+'"><span class="rsz"></span></span>'
-        + '<span class="fieldbox"><span class="fieldbox-label">Project #:</span><input class="bnum" data-field="blocknum|'+block.id+'" value="'+escAttr(block.projectNumber||'')+'"><span class="rsz"></span></span>'
-        + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"><span class="rsz"></span></span>'
+        + '<span class="titlewrap"><input class="btitle" data-field="blocktitle|'+block.id+'" placeholder="Project name" value="'+escAttr(block.title)+'"'+wStyle('title')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="title"></span></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">PM:</span><input class="bpm" data-field="blockpm|'+block.id+'" value="'+escAttr(block.pm||'')+'"'+wStyle('pm')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="pm"></span></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><input class="bphase" data-field="blockphase|'+block.id+'" value="'+escAttr(block.phaseManager||'')+'"'+wStyle('phase')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="phase"></span></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Project #:</span><input class="bnum" data-field="blocknum|'+block.id+'" value="'+escAttr(block.projectNumber||'')+'"'+wStyle('num')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="num"></span></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"'+wStyle('meta')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="meta"></span></span>'
         + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer/delete"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
@@ -1262,7 +1280,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const input = e.target.previousElementSibling;
     if(!input) return;
     e.preventDefault();
-    fieldResize = { input, handle:e.target, startX:e.clientX, startWidth:input.getBoundingClientRect().width };
+    fieldResize = { input, handle:e.target, startX:e.clientX, startWidth:input.getBoundingClientRect().width,
+      blockId: e.target.dataset.fwBlock, key: e.target.dataset.fwKey };
     e.target.classList.add('active');
   });
   document.addEventListener('mousemove', e=>{
@@ -1271,7 +1290,20 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     fieldResize.input.style.width = w+'px';
   });
   document.addEventListener('mouseup', ()=>{
-    if(fieldResize){ fieldResize.handle.classList.remove('active'); fieldResize = null; }
+    if(fieldResize){
+      fieldResize.handle.classList.remove('active');
+      const { blockId, key, input } = fieldResize;
+      if(blockId && key){
+        const b = findBlock(blockId);
+        if(b){
+          pushUndo();
+          if(!b.fieldWidths) b.fieldWidths = {};
+          b.fieldWidths[key] = parseInt(input.style.width, 10);
+          scheduleSave();
+        }
+      }
+      fieldResize = null;
+    }
   });
 
   let nameColResize = null;
@@ -1455,7 +1487,29 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
       focusUndoSnapshot = null;
     }
+    if(renderDeferred){
+      // Yield one tick first: if this blur is just moving to the next cell (e.g. pressing Tab),
+      // the new cell's focusin will already have landed by the time this runs, so isEditingField()
+      // correctly still reports true and we keep deferring instead of rendering mid-transition.
+      setTimeout(()=>{ if(renderDeferred && !isEditingField()) applyDeferredRender(); }, 0);
+    }
   });
+  function applyDeferredRender(){
+    if(!renderDeferred) return;
+    renderDeferred = false;
+    const changed = deferredFlashCells; deferredFlashCells = null;
+    render(); if(changed) flashCells(changed);
+  }
+  let lastKeystrokeTime = 0;
+  document.addEventListener('input', ()=>{ lastKeystrokeTime = Date.now(); }, true);
+  // Safety net: someone can leave a cell focused without actively typing (reading, thinking,
+  // stepped away) — don't leave them looking at stale data indefinitely just because focus
+  // never left the field. Once there's been a pause since the last keystroke, catch up, even
+  // though the field is still technically focused — a brief pause is a much less disruptive
+  // moment to redraw than mid-keystroke.
+  setInterval(()=>{
+    if(renderDeferred && Date.now()-lastKeystrokeTime > 2000) applyDeferredRender();
+  }, 2000);
   document.addEventListener('change', e=>{
     const t=e.target;
     if(t.matches('.initials-input')){

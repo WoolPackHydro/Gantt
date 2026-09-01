@@ -171,6 +171,11 @@
   .mobile-window-nav span{font-size:11.5px;color:#5a6472;font-weight:600;}
 
   @media (max-width: 768px){
+    /* iOS Safari auto-zooms the whole page when focusing any input smaller than 16px —
+       that's the actual cause of the zoom-on-tap, the header/undo button being shoved
+       around afterward, and (combined with the resize watcher below) the mid-edit
+       interruption. Forcing every input to 16px+ stops the zoom from triggering at all. */
+    input, textarea, select { font-size:16px !important; }
     /* The tab row was wrapping combined with space-between, which on a narrow screen
        pushed tabs off-screen instead of showing them. A single scrollable line is the
        standard, reliable fix — same pattern most mobile apps use for a tab strip. */
@@ -1699,7 +1704,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(()=>{
         const nowMobile = isMobileViewport();
-        if(nowMobile !== wasMobile){ wasMobile = nowMobile; if(appStarted) render(); }
+        if(nowMobile !== wasMobile){
+          wasMobile = nowMobile;
+          const activeIsInput = document.activeElement && document.activeElement.matches('input,textarea,select');
+          if(appStarted && !activeIsInput) render();
+        }
       }, 200);
     });
   })();

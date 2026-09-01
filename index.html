@@ -68,8 +68,7 @@
   .subrowhead-inner input{font-size:9.5px;font-weight:700;font-style:italic;text-transform:uppercase;letter-spacing:.03em;color:#5a6472;border:none;background:transparent;padding:0 2px;width:180px;}
   .subrowhead-inner .del{opacity:.5;flex-shrink:0;}
   .blockhead{grid-column:1/-1;min-height:19px;border-top:3px solid #000;}
-  .block-last-row{border-bottom:3px solid #000;}
-  .subrowhead.block-last-row{border-bottom:3px solid #000;}
+  .block-addrow{border-bottom:3px solid #000;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
   .blockhead input.btitle,.blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum,.blockhead input.bmeta{border:none;background:transparent;font-family:inherit;padding:0 2px;height:16px;line-height:16px;}
   .blockhead input.btitle{font-size:11px;font-weight:600;color:#1c1f22;width:250px;}
@@ -669,7 +668,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   function blockBand(index){ return (index%2===0) ? '#B7B7B7' : '#D0CECE'; } // matches your workbook's alternating project-row shading
 
-  function dayCellHTML(row,date,fallbackBg,extraClass){
+  function dayCellHTML(row,date,fallbackBg){
     const cellObj = row.cells[date];
     const text = cellObj ? (cellObj.text||'') : '';
     const style = cellStyle(cellObj, fallbackBg);
@@ -677,7 +676,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const comment = cellObj && cellObj.comment ? cellObj.comment : '';
     const commentClass = comment ? ' has-comment' : '';
     const titleAttr = comment ? ' title="'+escAttr(comment)+'"' : '';
-    return '<div class="cell daycell'+todayClass+commentClass+(extraClass||'')+'" data-row="'+row.id+'" data-date="'+date+'" style="'+style+'"'+titleAttr+'>'
+    return '<div class="cell daycell'+todayClass+commentClass+'" data-row="'+row.id+'" data-date="'+date+'" style="'+style+'"'+titleAttr+'>'
       + '<input class="cellinput" type="text" value="'+escAttr(text)+'" data-cellinput="'+row.id+'|'+date+'" style="color:inherit;font-weight:inherit">'
       + '</div>';
   }
@@ -748,12 +747,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return '<div class="cell lblnum row" data-row="'+row.id+'"'+rowAttrs+'><div class="lblnum-inner" style="background:'+color+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'600')+'">'+initialsField+'</div></div>'
       + '<div class="cell lblname row" data-row="'+row.id+'"'+rowAttrs+'><div class="lblname-inner">'+handle+nameField+del+'</div></div>';
   }
-  function roleLabelHTML(row, band, extraClass){
+  function roleLabelHTML(row, band){
     const bg = band ? 'background:'+band+';' : '';
-    return '<div class="cell lblname row'+(extraClass||'')+'" data-row="'+row.id+'" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
+    return '<div class="cell lblname row" data-row="'+row.id+'" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
   }
-  function subrowHeaderHTML(row, extraClass){
-    return '<div class="subrowhead'+(extraClass||'')+'"><div class="subrowhead-inner">'
+  function subrowHeaderHTML(row){
+    return '<div class="subrowhead"><div class="subrowhead-inner">'
       + '<input value="'+escAttr(row.label||'')+'" data-field="subrowlabel|'+row.id+'" placeholder="Sub-group name">'
       + '<button class="del" data-delrow="'+row.id+'" title="Remove sub-group heading">✕</button></div></div>';
   }
@@ -777,10 +776,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '<div class="tabgroup">'+pastDaysHTML+rightTabs.map(tabBtn).join('')+'</div>';
   }
 
+  function sortedByFirstName(list){
+    return [...list].sort((a,b)=>(a.name||'').localeCompare(b.name||'', undefined, {sensitivity:'base'}));
+  }
   function renderPTOTab(container){
     const days = visibleDays();
     let html = gridHeaderHTML(days);
-    state.employees.forEach(emp=>{
+    sortedByFirstName(state.employees).forEach(emp=>{
       html += identityLabelHTML(emp, {deletable:false});
       days.forEach(d=> html += dayCellHTML(emp,d,monthBand(d)));
     });
@@ -815,16 +817,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
-      block.rows.forEach((row,rowIdx)=>{
-        const lastCls = rowIdx===block.rows.length-1 ? ' block-last-row' : '';
+      block.rows.forEach(row=>{
         if(row.type==='subheader'){
-          html += subrowHeaderHTML(row, lastCls);
+          html += subrowHeaderHTML(row);
         } else {
-          html += roleLabelHTML(row, band, lastCls);
-          days.forEach(d=> html += dayCellHTML(row,d,monthBand(d),lastCls));
+          html += roleLabelHTML(row, band);
+          days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
         }
       });
-      html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
+      html += '<div class="addrow block-addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
     });
     let pasteBtn = '';
     if(projectClipboard && projectClipboard.blocks && projectClipboard.blocks.length){
@@ -900,7 +901,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     let html = '<div class="settings-wrap">';
     html += regionsSettingsHTML();
     html += '<div class="setsection"><h3>Employees</h3><div class="setlist">'
-      + settingsListHTML('employees', state.employees, [{name:'initials',placeholder:'Init'},{name:'name',placeholder:'Full name'}])
+      + settingsListHTML('employees', sortedByFirstName(state.employees), [{name:'initials',placeholder:'Init'},{name:'name',placeholder:'Full name'}])
       + '</div><button class="btn" data-addsetitem="employees">+ Add employee</button></div>';
     html += '<div class="setsection"><h3>Boats</h3><div class="setlist">'
       + settingsListHTML('boats', state.boats, [{name:'code',placeholder:'Code'},{name:'name',placeholder:'Boat name'}])

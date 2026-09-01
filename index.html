@@ -67,7 +67,9 @@
   .subrowhead-inner{position:sticky;left:16px;display:flex;align-items:center;gap:6px;width:fit-content;padding:1px 5px;}
   .subrowhead-inner input{font-size:9.5px;font-weight:700;font-style:italic;text-transform:uppercase;letter-spacing:.03em;color:#5a6472;border:none;background:transparent;padding:0 2px;width:180px;}
   .subrowhead-inner .del{opacity:.5;flex-shrink:0;}
-  .blockhead{grid-column:1/-1;min-height:19px;}
+  .blockhead{grid-column:1/-1;min-height:19px;border-top:3px solid #000;}
+  .block-last-row{border-bottom:3px solid #000;}
+  .subrowhead.block-last-row{border-bottom:3px solid #000;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
   .blockhead input.btitle,.blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum,.blockhead input.bmeta{border:none;background:transparent;font-family:inherit;padding:0 2px;height:16px;line-height:16px;}
   .blockhead input.btitle{font-size:11px;font-weight:600;color:#1c1f22;width:250px;}
@@ -118,6 +120,8 @@
   .setrow{display:flex;align-items:center;gap:6px;padding:2px 2px;}
   .drag-handle{cursor:grab;padding:0 3px;color:#9aa0a6;font-size:13px;user-select:none;flex-shrink:0;}
   .region-row.drag-over{background:#eef4fa;outline:1px dashed #4a86c5;}
+  .overflow-drag-handle{cursor:grab;padding:0 3px 0 0;color:#9aa0a6;font-size:12px;user-select:none;flex-shrink:0;}
+  .overflow-drag-over{outline:2px dashed #2f6fb0;outline-offset:-2px;}
   .sethint{font-size:10.5px;color:#5a6472;margin:0 0 6px;}
   .pinned-note{font-size:9.5px;color:#9aa0a6;font-style:italic;flex-shrink:0;}
   .setlist-header{display:flex;align-items:center;gap:6px;padding:0 2px 3px;margin-bottom:3px;border-bottom:1px solid #c9c9c9;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:#5a6472;}
@@ -665,7 +669,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   function blockBand(index){ return (index%2===0) ? '#B7B7B7' : '#D0CECE'; } // matches your workbook's alternating project-row shading
 
-  function dayCellHTML(row,date,fallbackBg){
+  function dayCellHTML(row,date,fallbackBg,extraClass){
     const cellObj = row.cells[date];
     const text = cellObj ? (cellObj.text||'') : '';
     const style = cellStyle(cellObj, fallbackBg);
@@ -673,7 +677,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const comment = cellObj && cellObj.comment ? cellObj.comment : '';
     const commentClass = comment ? ' has-comment' : '';
     const titleAttr = comment ? ' title="'+escAttr(comment)+'"' : '';
-    return '<div class="cell daycell'+todayClass+commentClass+'" data-row="'+row.id+'" data-date="'+date+'" style="'+style+'"'+titleAttr+'>'
+    return '<div class="cell daycell'+todayClass+commentClass+(extraClass||'')+'" data-row="'+row.id+'" data-date="'+date+'" style="'+style+'"'+titleAttr+'>'
       + '<input class="cellinput" type="text" value="'+escAttr(text)+'" data-cellinput="'+row.id+'|'+date+'" style="color:inherit;font-weight:inherit">'
       + '</div>';
   }
@@ -733,21 +737,23 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const color = colorForText(row.initials) || '#f2f2f2';
     const fs = fontStyleFor(row.initials, color);
     const del = opts.deletable ? '<button class="del" data-delrow="'+row.id+'" title="Remove">✕</button>' : '';
+    const handle = opts.reorderable ? '<span class="overflow-drag-handle" draggable="true" title="Drag to reorder">⠿</span>' : '';
     const initialsField = opts.editable
       ? '<input class="initials-input" value="'+escAttr(row.initials||'')+'" data-field="initials|'+row.id+'">'
       : escAttr(row.initials||'');
     const nameField = opts.editable
       ? '<input class="idname-input" value="'+escAttr(row.name||'')+'" data-field="name|'+row.id+'">'
       : '<span class="idname">'+escAttr(row.name||'')+'</span>';
-    return '<div class="cell lblnum row" data-row="'+row.id+'"><div class="lblnum-inner" style="background:'+color+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'600')+'">'+initialsField+'</div></div>'
-      + '<div class="cell lblname row" data-row="'+row.id+'"><div class="lblname-inner">'+nameField+del+'</div></div>';
+    const rowAttrs = opts.reorderable ? ' data-overflow-row="'+row.id+'" data-overflow-region="'+(opts.regionKey||'')+'"' : '';
+    return '<div class="cell lblnum row" data-row="'+row.id+'"'+rowAttrs+'><div class="lblnum-inner" style="background:'+color+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'600')+'">'+initialsField+'</div></div>'
+      + '<div class="cell lblname row" data-row="'+row.id+'"'+rowAttrs+'><div class="lblname-inner">'+handle+nameField+del+'</div></div>';
   }
-  function roleLabelHTML(row, band){
+  function roleLabelHTML(row, band, extraClass){
     const bg = band ? 'background:'+band+';' : '';
-    return '<div class="cell lblname row" data-row="'+row.id+'" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
+    return '<div class="cell lblname row'+(extraClass||'')+'" data-row="'+row.id+'" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0"><input value="'+escAttr(row.role)+'" data-field="role|'+row.id+'" placeholder="Role"><button class="del" data-delrow="'+row.id+'" title="Remove row">✕</button></div></div>';
   }
-  function subrowHeaderHTML(row){
-    return '<div class="subrowhead"><div class="subrowhead-inner">'
+  function subrowHeaderHTML(row, extraClass){
+    return '<div class="subrowhead'+(extraClass||'')+'"><div class="subrowhead-inner">'
       + '<input value="'+escAttr(row.label||'')+'" data-field="subrowlabel|'+row.id+'" placeholder="Sub-group name">'
       + '<button class="del" data-delrow="'+row.id+'" title="Remove sub-group heading">✕</button></div></div>';
   }
@@ -790,7 +796,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     let html = gridHeaderHTML(days);
     html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow</span></div>';
     reg.overflow.forEach(row=>{
-      html += identityLabelHTML(row, {deletable:true, editable:true});
+      html += identityLabelHTML(row, {deletable:true, editable:true, reorderable:true, regionKey:regionKey});
       days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
     });
     html += '<div class="addrow"><div class="addrow-inner"><button data-addoverflow-region="'+regionKey+'">+ Add person or boat to overflow</button></div></div>';
@@ -809,12 +815,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
-      block.rows.forEach(row=>{
+      block.rows.forEach((row,rowIdx)=>{
+        const lastCls = rowIdx===block.rows.length-1 ? ' block-last-row' : '';
         if(row.type==='subheader'){
-          html += subrowHeaderHTML(row);
+          html += subrowHeaderHTML(row, lastCls);
         } else {
-          html += roleLabelHTML(row, band);
-          days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
+          html += roleLabelHTML(row, band, lastCls);
+          days.forEach(d=> html += dayCellHTML(row,d,monthBand(d),lastCls));
         }
       });
       html += '<div class="addrow"><div class="addrow-inner"><button data-addrow-block="'+block.id+'">+ Add row</button><button data-addsubhead-block="'+block.id+'">+ Add sub-group heading</button><button data-addblock-after="'+block.id+'">+ Insert new project below</button></div></div>';
@@ -1689,6 +1696,52 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   document.addEventListener('dragend', ()=>{
     dragRegionKey = null;
     document.querySelectorAll('.region-row.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  });
+
+  let dragOverflowRowId = null, dragOverflowRegion = null;
+  document.addEventListener('dragstart', e=>{
+    if(!e.target.classList || !e.target.classList.contains('overflow-drag-handle')) return;
+    const cellEl = e.target.closest('[data-overflow-row]');
+    if(!cellEl) return;
+    dragOverflowRowId = cellEl.dataset.overflowRow;
+    dragOverflowRegion = cellEl.dataset.overflowRegion;
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  document.addEventListener('dragover', e=>{
+    if(!dragOverflowRowId) return;
+    const cellEl = e.target.closest && e.target.closest('[data-overflow-row]');
+    if(!cellEl || cellEl.dataset.overflowRegion !== dragOverflowRegion) return;
+    e.preventDefault();
+    cellEl.classList.add('overflow-drag-over');
+  });
+  document.addEventListener('dragleave', e=>{
+    const cellEl = e.target.closest && e.target.closest('[data-overflow-row]');
+    if(cellEl) cellEl.classList.remove('overflow-drag-over');
+  });
+  document.addEventListener('drop', e=>{
+    const cellEl = e.target.closest && e.target.closest('[data-overflow-row]');
+    if(cellEl) cellEl.classList.remove('overflow-drag-over');
+    if(!cellEl || !dragOverflowRowId || cellEl.dataset.overflowRegion !== dragOverflowRegion) return;
+    e.preventDefault();
+    const targetId = cellEl.dataset.overflowRow;
+    if(targetId !== dragOverflowRowId){
+      const overflow = state.regions[dragOverflowRegion] && state.regions[dragOverflowRegion].overflow;
+      if(overflow){
+        const fromIdx = overflow.findIndex(r=>r.id===dragOverflowRowId);
+        const toIdx = overflow.findIndex(r=>r.id===targetId);
+        if(fromIdx!==-1 && toIdx!==-1){
+          pushUndo();
+          const item = overflow.splice(fromIdx,1)[0];
+          overflow.splice(toIdx,0,item);
+          render(); scheduleSave();
+        }
+      }
+    }
+    dragOverflowRowId = null; dragOverflowRegion = null;
+  });
+  document.addEventListener('dragend', ()=>{
+    dragOverflowRowId = null; dragOverflowRegion = null;
+    document.querySelectorAll('.overflow-drag-over').forEach(el=>el.classList.remove('overflow-drag-over'));
   });
 
   function startDateWatcher(){

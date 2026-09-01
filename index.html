@@ -1450,26 +1450,31 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       document.getElementById('historySearchInput').setSelectionRange(val.length,val.length);
     }
   });
-  document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.matches('input')) e.target.blur(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.matches('input') && !e.target.matches('.cellinput')) e.target.blur(); });
   document.addEventListener('keydown', e=>{
     if(!e.target.matches('.cellinput')) return;
-    if(e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-    if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) return;
+    if(e.ctrlKey || e.metaKey || e.altKey) return;
+    const isArrow = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key);
+    const isEnterOrTab = e.key==='Enter' || e.key==='Tab';
+    if(!isArrow && !isEnterOrTab) return;
+    if(isArrow && e.shiftKey) return; // shift+arrow is left alone, unchanged
     const cellEl = e.target.closest('.daycell');
     if(!cellEl) return;
     const curDate = cellEl.dataset.date, curRow = cellEl.dataset.row;
     let targetEl = null;
-    if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
+    if(e.key==='ArrowLeft' || e.key==='ArrowRight' || e.key==='Tab'){
       const days = visibleDays();
       const di = days.indexOf(curDate);
-      const newDi = e.key==='ArrowLeft' ? di-1 : di+1;
+      const forward = e.key==='ArrowRight' || (e.key==='Tab' && !e.shiftKey);
+      const newDi = forward ? di+1 : di-1;
       if(newDi>=0 && newDi<days.length){
         targetEl = document.querySelector('.daycell[data-row="'+curRow+'"][data-date="'+days[newDi]+'"] .cellinput');
       }
     } else {
       const rowEls = allRowElements();
       const ri = rowEls.findIndex(el=>el.dataset.row===curRow);
-      const newRi = e.key==='ArrowUp' ? ri-1 : ri+1;
+      const forward = e.key==='ArrowDown' || (e.key==='Enter' && !e.shiftKey);
+      const newRi = forward ? ri+1 : ri-1;
       if(ri!==-1 && newRi>=0 && newRi<rowEls.length){
         const newRowId = rowEls[newRi].dataset.row;
         targetEl = document.querySelector('.daycell[data-row="'+newRowId+'"][data-date="'+curDate+'"] .cellinput');

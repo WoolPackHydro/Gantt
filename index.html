@@ -560,6 +560,32 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
     return changed;
   }
+  // Warns when someone gets assigned to a job on a day their overflow entry shows an actual
+  // status code (PTO, OOO, etc.) rather than their own initials or blank — a likely sign
+  // they're not really available. Fires no matter how the edit was confirmed (Tab, Enter,
+  // clicking away), unlike the overflow auto-clear rule above which is Tab-specific. This is
+  // informational only — it never blocks or changes the assignment, just flags it.
+  function checkOverflowConflict(rowId, date){
+    const ctx = findProjectRoleRow(rowId);
+    if(!ctx) return;
+    const cellObj = ctx.row.cells[date];
+    const text = (cellObj && cellObj.text || '').trim();
+    if(!text) return;
+    const key = text.toLowerCase();
+    const person = employeeOrBoatByCode(key);
+    if(!person) return;
+    const overflowRow = findOverflowRowByCode(ctx.regionKey, key);
+    if(!overflowRow) return;
+    const overflowCell = overflowRow.cells[date];
+    const overflowText = overflowCell ? (overflowCell.text||'').trim() : '';
+    if(!overflowText) return;
+    const statusMatch = state.statusCodes.find(sc=>sc.code && sc.code.toLowerCase()===overflowText.toLowerCase());
+    if(!statusMatch) return;
+    const dt = new Date(date+'T00:00:00');
+    const dateLabel = (dt.getMonth()+1)+'/'+dt.getDate();
+    const who = person.name || person.initials || person.code;
+    alert('Warning: There is a conflict — '+who+' is marked "'+statusMatch.code+'"'+(statusMatch.label?' ('+statusMatch.label+')':'')+' on '+dateLabel+', but was just assigned to a job that day.');
+  }
 
   // For accounting: logs a project the first time it's given a real name (so a client is
   // never accidentally left off the billing list). Deliberately skips projects that are still
@@ -1756,7 +1782,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
   });
   document.addEventListener('focusout', e=>{
-    if(e.target.matches('.cellinput')) hideFillHandle();
+    if(e.target.matches('.cellinput')){
+      hideFillHandle();
+      const [rowId,date] = e.target.dataset.cellinput.split('|');
+      checkOverflowConflict(rowId, date);
+    }
     if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
       if(!suppressUndoCapture){
         const current = captureUndoSnapshot();
@@ -2330,6 +2360,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     updateFormulaBar(); // refresh button enable/disable — typing may change whether this now matches a known code
     scheduleSave();
+  });
+  document.getElementById('formulaBarInput').addEventListener('blur', ()=>{
+    if(currentFormulaCell) checkOverflowConflict(currentFormulaCell.rowId, currentFormulaCell.date);
   });
   function applyFormulaFormat(mutator){
     if(!currentFormulaCell) return;

@@ -181,6 +181,14 @@
   .blockselect{margin-right:2px;cursor:pointer;flex-shrink:0;}
   .blockhead-selected{outline:2px solid #2f6fb0;outline-offset:-2px;}
   .mobile-window-nav{display:flex;align-items:center;justify-content:center;gap:10px;padding:6px 8px;border-bottom:1px solid #c9c9c9;background:#f4f8fa;}
+  .formula-bar{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #c9c9c9;background:#fff;}
+  .formula-bar-label{font-size:11px;color:#5a6472;flex-shrink:0;min-width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;}
+  .formula-bar input{flex:1;min-width:0;font-size:12.5px;padding:4px 7px;border:1px solid #c7ccd1;border-radius:3px;}
+  .formula-bar input:disabled{background:#f2f4f5;color:#9aa0a6;}
+  .fbtn{font-size:11px;padding:4px 9px;border:1px solid #c7ccd1;border-radius:3px;background:#fff;cursor:pointer;flex-shrink:0;}
+  .fbtn:hover:not(:disabled){background:#eef4fa;}
+  .fbtn.active{background:#2f6fb0;color:#fff;border-color:#2f6fb0;}
+  .fbtn:disabled{opacity:0.4;cursor:default;}
   .mobile-window-nav button{font-size:12px;padding:5px 12px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;}
   .mobile-window-nav button:hover{background:#eef4f6;}
   .mobile-window-nav span{font-size:11.5px;color:#5a6472;font-weight:600;}
@@ -239,6 +247,14 @@
     <button id="mobilePrevWindow">◀ Earlier</button>
     <span id="mobileWindowLabel"></span>
     <button id="mobileNextWindow">Later ▶</button>
+  </div>
+  <div class="formula-bar" id="formulaBar">
+    <span class="formula-bar-label" id="formulaBarLabel">No cell selected</span>
+    <input type="text" id="formulaBarInput" placeholder="Click a cell to see and edit its full text here" disabled>
+    <button class="fbtn" id="formulaBoldBtn" title="Bold" disabled><b>B</b></button>
+    <button class="fbtn" id="formulaAlignLeftBtn" title="Align left" disabled>Left</button>
+    <button class="fbtn" id="formulaAlignCenterBtn" title="Align center" disabled>Center</button>
+    <button class="fbtn" id="formulaAlignRightBtn" title="Align right" disabled>Right</button>
   </div>
   <div id="selectionBar" class="selection-bar" style="display:none">
     <span id="selectionBarText"></span>
@@ -408,36 +424,39 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     programmaticFocusRestore = false;
   }
-  function commitUndoSnapshot(beforeJson){
-    undoStack.push(beforeJson);
+  function captureUndoSnapshot(){ return { stateJson: JSON.stringify(state), colWidthsJson: JSON.stringify(perColWidths) }; }
+  function applyUndoSnapshot(snap){
+    const nav = {activeTab:state.activeTab, historyDate:state.historyDate, historySearch:state.historySearch, hidePast:state.hidePast};
+    state = normalizeState(JSON.parse(snap.stateJson));
+    Object.assign(state, nav); // undo/redo only touches data, never which tab/view you're looking at
+    perColWidths = JSON.parse(snap.colWidthsJson);
+    savePerColWidths();
+  }
+  function commitUndoSnapshot(beforeSnap){
+    undoStack.push(beforeSnap);
     if(undoStack.length>MAX_UNDO) undoStack.shift();
     redoStack = [];
     updateUndoRedoButtons();
   }
-  function pushUndo(){ commitUndoSnapshot(JSON.stringify(state)); }
+  function pushUndo(){ commitUndoSnapshot(captureUndoSnapshot()); }
   function updateUndoRedoButtons(){
     const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
     if(u) u.disabled = undoStack.length===0;
     if(r) r.disabled = redoStack.length===0;
   }
-  function applyHistorySnapshot(json){
-    const nav = {activeTab:state.activeTab, historyDate:state.historyDate, historySearch:state.historySearch, hidePast:state.hidePast};
-    state = normalizeState(JSON.parse(json));
-    Object.assign(state, nav); // undo/redo only touches data, never which tab/view you're looking at
-  }
   function doUndo(){
     if(!undoStack.length) return;
-    redoStack.push(JSON.stringify(state));
+    redoStack.push(captureUndoSnapshot());
     if(redoStack.length>MAX_UNDO) redoStack.shift();
-    applyHistorySnapshot(undoStack.pop());
+    applyUndoSnapshot(undoStack.pop());
     render(); scheduleSave();
     updateUndoRedoButtons();
   }
   function doRedo(){
     if(!redoStack.length) return;
-    undoStack.push(JSON.stringify(state));
+    undoStack.push(captureUndoSnapshot());
     if(undoStack.length>MAX_UNDO) undoStack.shift();
-    applyHistorySnapshot(redoStack.pop());
+    applyUndoSnapshot(redoStack.pop());
     render(); scheduleSave();
     updateUndoRedoButtons();
   }
@@ -470,6 +489,76 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(b) return { block:b, regionKey:rk, regionTitle:reg.title };
     }
     return null;
+  }
+
+  // --- Overflow auto-clear: when a person/boat gets typed into a project role cell and
+  // confirmed with Tab, they're automatically removed from the overflow "available" list
+  // for that same day, matching the workflow of manually clearing them once assigned. Only
+  // Tab triggers this (not Enter/arrows/clicking away) so someone can deliberately still list
+  // the same person in two places if they want to. If the assignment is later removed, the
+  // overflow entry snaps back automatically — but only for links this feature itself created.
+  function findProjectRoleRow(rowId){
+    for(const rk of Object.keys(state.regions)){
+      for(const b of state.regions[rk].blocks){
+        const r = b.rows.find(x=>x.id===rowId && x.type!=='subheader');
+        if(r) return {row:r, regionKey:rk};
+      }
+    }
+    return null;
+  }
+  function employeeOrBoatByCode(key){
+    let hit = state.employees.find(e=>e.initials && e.initials.toLowerCase()===key);
+    if(hit) return hit;
+    hit = state.boats.find(b=>b.code && b.code.toLowerCase()===key);
+    return hit || null;
+  }
+  function findOverflowRowByCode(regionKey, key){
+    const reg = state.regions[regionKey];
+    if(!reg) return null;
+    return reg.overflow.find(r=>r.initials && r.initials.toLowerCase()===key) || null;
+  }
+  function tryAutoClearOverflow(rowId, date){
+    const ctx = findProjectRoleRow(rowId);
+    if(!ctx) return; // only applies to actual project role rows — not PTO, not overflow itself
+    const text = (ctx.row.cells[date] && ctx.row.cells[date].text || '').trim();
+    if(!text) return;
+    const key = text.toLowerCase();
+    if(!employeeOrBoatByCode(key)) return; // only real, matched employees/boats trigger this
+    const overflowRow = findOverflowRowByCode(ctx.regionKey, key);
+    if(!overflowRow) return;
+    const overflowCell = overflowRow.cells[date];
+    const overflowText = overflowCell ? (overflowCell.text||'').trim().toLowerCase() : '';
+    if(overflowText !== key) return; // not currently shown as available that day — nothing to clear
+    pushUndo();
+    if(!state.overflowLinks) state.overflowLinks = {};
+    state.overflowLinks[rowId+'|'+date] = {
+      overflowRegionKey: ctx.regionKey,
+      overflowRowId: overflowRow.id,
+      overflowDate: date,
+      restoreValue: JSON.parse(JSON.stringify(overflowCell)),
+      matchedInitials: key
+    };
+    overflowRow.cells[date] = {text:''};
+    render();
+    scheduleSave();
+  }
+  function reconcileOverflowLinks(){
+    if(!state.overflowLinks) return false;
+    let changed = false;
+    Object.keys(state.overflowLinks).forEach(key=>{
+      const link = state.overflowLinks[key];
+      const [rowId, date] = key.split('|');
+      const found = findRow(rowId);
+      const currentText = (found && found.row.cells[date] && found.row.cells[date].text || '').trim().toLowerCase();
+      if(currentText !== link.matchedInitials){
+        const reg = state.regions[link.overflowRegionKey];
+        const overflowRow = reg && reg.overflow.find(r=>r.id===link.overflowRowId);
+        if(overflowRow) overflowRow.cells[link.overflowDate] = link.restoreValue;
+        delete state.overflowLinks[key];
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   // For accounting: logs a project the first time it's given a real name (so a client is
@@ -653,6 +742,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
   }
   function scheduleSave(){
+    if(reconcileOverflowLinks()) render();
     clearTimeout(saveTimer);
     clearTimeout(retryTimer);
     setSyncLabel('Saving…');
@@ -724,13 +814,25 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const start = Math.max(0, Math.min(mobileWindowStart, Math.max(0, base.length-1)));
     return base.slice(start, start+windowSize());
   }
+  function isCellTextMatched(text){
+    const key = text ? text.trim().toLowerCase() : '';
+    return key ? !!masterItemFor(key) : false;
+  }
   function cellStyle(cellObj, fallbackBg){
     if(cellObj){
-      const bg = cellObj.color || colorForText(cellObj.text);
+      const text = cellObj.text || '';
+      const matched = isCellTextMatched(text);
+      const align = matched ? 'center' : (cellObj.align || 'center');
+      const bg = cellObj.color || colorForText(text);
       if(bg){
-        const fs = fontStyleFor(cellObj.text, bg);
-        return 'background:'+bg+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'500')+';';
+        const fs = fontStyleFor(text, bg);
+        // A per-cell bold toggle only applies to free text — anything matching a real
+        // person/boat/status code always uses that entity's own bold setting, so every
+        // cell showing e.g. "WT" looks the same everywhere, regardless of who set it.
+        const bold = matched ? fs.bold : (cellObj.bold || fs.bold);
+        return 'background:'+bg+';color:'+fs.color+';font-weight:'+(bold?'700':'500')+';text-align:'+align+';';
       }
+      return (fallbackBg ? ('background:'+fallbackBg+';') : '') + 'text-align:'+align+';';
     }
     return fallbackBg ? ('background:'+fallbackBg+';') : '';
   }
@@ -751,7 +853,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const commentClass = comment ? ' has-comment' : '';
     const titleAttr = comment ? ' title="'+escAttr(comment)+'"' : '';
     return '<div class="cell daycell'+todayClass+commentClass+'" data-row="'+row.id+'" data-date="'+date+'" style="'+style+'"'+titleAttr+'>'
-      + '<input class="cellinput" type="text" value="'+escAttr(text)+'" data-cellinput="'+row.id+'|'+date+'" style="color:inherit;font-weight:inherit">'
+      + '<input class="cellinput" type="text" value="'+escAttr(text)+'" data-cellinput="'+row.id+'|'+date+'" style="color:inherit;font-weight:inherit;text-align:inherit">'
       + '</div>';
   }
   function dateHeadHTML(d){
@@ -759,7 +861,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const isToday = d===TODAY_ISO;
     const todayClass = isToday ? ' today' : '';
     const style = isToday ? '' : ' style="background:'+monthBand(d)+'"';
-    return '<div class="cell datehead'+todayClass+'" data-date="'+d+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" data-rsz-date="'+d+'" title="Drag to widen just this column"></span></div>';
+    return '<div class="cell datehead'+todayClass+'" data-date="'+d+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span><span class="daycol-rsz" data-rsz-date="'+d+'" title="Drag to widen just this column — double-click to reset to default width"></span></div>';
   }
   function monthGroups(days){
     const groups = [];
@@ -1300,6 +1402,46 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
   let currentSelection = null; // {rowIds:[...], dates:[...]}
+  let currentFormulaCell = null; // {rowId, date} — whichever cell the formula bar is currently showing
+  function updateFormulaBar(){
+    const bar = document.getElementById('formulaBarInput');
+    const label = document.getElementById('formulaBarLabel');
+    const boldBtn = document.getElementById('formulaBoldBtn');
+    const leftBtn = document.getElementById('formulaAlignLeftBtn');
+    const centerBtn = document.getElementById('formulaAlignCenterBtn');
+    const rightBtn = document.getElementById('formulaAlignRightBtn');
+    if(!bar) return;
+    const btns = [boldBtn,leftBtn,centerBtn,rightBtn];
+    if(!currentFormulaCell){
+      bar.disabled = true; bar.value = '';
+      if(label) label.textContent = 'No cell selected';
+      btns.forEach(b=>{ if(b){ b.disabled = true; b.classList.remove('active'); } });
+      return;
+    }
+    const found = findRow(currentFormulaCell.rowId);
+    const date = currentFormulaCell.date;
+    // The underlying row might no longer exist on screen (deleted, or a different tab
+    // entirely) — rather than show stale data from somewhere no longer visible, clear it.
+    const stillOnScreen = document.querySelector('.cellinput[data-cellinput="'+CSS.escape(currentFormulaCell.rowId+'|'+date)+'"]');
+    if(!found || (!stillOnScreen && document.activeElement!==bar)){
+      currentFormulaCell = null;
+      updateFormulaBar();
+      return;
+    }
+    const row = found.row;
+    const cellObj = row.cells[date] || {text:''};
+    const labelName = row.initials || row.role || '';
+    const dt = new Date(date+'T00:00:00');
+    if(label) label.textContent = (labelName ? labelName+' — ' : '') + (dt.getMonth()+1)+'/'+dt.getDate();
+    bar.disabled = false;
+    if(document.activeElement !== bar) bar.value = cellObj.text || '';
+    const matched = isCellTextMatched(cellObj.text||'');
+    btns.forEach(b=>{ if(b) b.disabled = matched; });
+    if(boldBtn) boldBtn.classList.toggle('active', !matched && !!cellObj.bold);
+    if(leftBtn) leftBtn.classList.toggle('active', !matched && cellObj.align==='left');
+    if(centerBtn) centerBtn.classList.toggle('active', !matched && (!cellObj.align || cellObj.align==='center'));
+    if(rightBtn) rightBtn.classList.toggle('active', !matched && cellObj.align==='right');
+  }
   let projectClipboard = null; // {mode:'copy'|'transfer', blocks:[...], sourceIds:[...]} — deep-copied projects, for pasting into any section
   let selectedProjectIds = new Set(); // project ids checked for a multi-project copy/transfer, independent of which tab is active
   function updateSelectionBar(){
@@ -1435,12 +1577,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     e.preventDefault();
     const d = e.target.dataset.rszDate;
     const tabWidths = perColWidths[state.activeTab] || {};
-    dayColResize = { date:d, startX:e.clientX, startWidth: tabWidths[d] || defaultDayColWidth() };
+    dayColResize = { date:d, startX:e.clientX, startWidth: tabWidths[d] || defaultDayColWidth(), moved:false, beforeSnapshot: captureUndoSnapshot() };
     e.target.classList.add('active');
   });
   document.addEventListener('mousemove', e=>{
     if(!dayColResize) return;
     const w = Math.max(20, dayColResize.startWidth + (e.clientX - dayColResize.startX));
+    const tabWidths = perColWidths[state.activeTab];
+    if(w !== (tabWidths && tabWidths[dayColResize.date])) dayColResize.moved = true;
     if(!perColWidths[state.activeTab]) perColWidths[state.activeTab] = {};
     perColWidths[state.activeTab][dayColResize.date] = w;
     const sheetEl = document.getElementById('sheet');
@@ -1449,9 +1593,21 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   document.addEventListener('mouseup', ()=>{
     if(dayColResize){
       document.querySelectorAll('.daycol-rsz.active').forEach(el=>el.classList.remove('active'));
+      if(dayColResize.moved) commitUndoSnapshot(dayColResize.beforeSnapshot);
       dayColResize = null;
       savePerColWidths();
     }
+  });
+  document.addEventListener('dblclick', e=>{
+    if(!e.target.matches('.daycol-rsz')) return;
+    const d = e.target.dataset.rszDate;
+    const tabWidths = perColWidths[state.activeTab];
+    if(!tabWidths || tabWidths[d]===undefined) return; // already at the default, nothing to reset
+    pushUndo();
+    delete tabWidths[d];
+    savePerColWidths();
+    const sheetEl = document.getElementById('sheet');
+    if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays());
   });
 
   document.addEventListener('copy', e=>{
@@ -1519,6 +1675,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       found.row.cells[date].text=t.value;
       const wrap=t.closest('.daycell');
       wrap.style.cssText=cellStyle(found.row.cells[date], monthBand(date));
+      if(currentFormulaCell && currentFormulaCell.rowId===rowId && currentFormulaCell.date===date) updateFormulaBar();
       scheduleSave();
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
@@ -1576,10 +1733,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
     }
     if(targetEl){ e.preventDefault(); targetEl.focus(); }
+    if(e.key==='Tab') tryAutoClearOverflow(curRow, curDate);
   });
   document.addEventListener('focusin', e=>{
     if(e.target.matches('input,select,textarea') && appStarted && !programmaticFocusRestore){
-      focusUndoSnapshot = JSON.stringify(state);
+      focusUndoSnapshot = captureUndoSnapshot();
     }
     if(e.target.matches('.cellinput')){
       e.target.select();
@@ -1593,14 +1751,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(prevActive) prevActive.classList.remove('col-active');
       const headEl = document.querySelector('.datehead[data-date="'+date+'"]');
       if(headEl) headEl.classList.add('col-active');
+      currentFormulaCell = {rowId, date};
+      updateFormulaBar();
     }
   });
   document.addEventListener('focusout', e=>{
     if(e.target.matches('.cellinput')) hideFillHandle();
     if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
       if(!suppressUndoCapture){
-        const current = JSON.stringify(state);
-        if(current !== focusUndoSnapshot) commitUndoSnapshot(focusUndoSnapshot);
+        const current = captureUndoSnapshot();
+        if(current.stateJson!==focusUndoSnapshot.stateJson || current.colWidthsJson!==focusUndoSnapshot.colWidthsJson) commitUndoSnapshot(focusUndoSnapshot);
       }
       focusUndoSnapshot = null;
     }
@@ -1732,7 +1892,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('[data-tab]')){
       state.activeTab=t.dataset.tab;
       try{ localStorage.setItem(LAST_TAB_KEY, state.activeTab); }catch(e){}
+      currentFormulaCell = null;
       render(false);
+      updateFormulaBar();
       return;
     }
     if(t.matches('[data-delrow]')){ const found=findRow(t.dataset.delrow); if(found && confirm('Remove this row?')){ pushUndo(); found.remove(); render(); scheduleSave(); } return; }
@@ -2153,6 +2315,42 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     mobileWindowStart += windowShift();
     render(false);
   });
+  document.getElementById('formulaBarInput').addEventListener('input', e=>{
+    if(!currentFormulaCell) return;
+    const found = findRow(currentFormulaCell.rowId);
+    if(!found) return;
+    const date = currentFormulaCell.date;
+    found.row.cells[date] = found.row.cells[date] || {};
+    found.row.cells[date].text = e.target.value;
+    const gridInput = document.querySelector('.cellinput[data-cellinput="'+CSS.escape(currentFormulaCell.rowId+'|'+date)+'"]');
+    if(gridInput){
+      gridInput.value = e.target.value;
+      const wrap = gridInput.closest('.daycell');
+      if(wrap) wrap.style.cssText = cellStyle(found.row.cells[date], monthBand(date));
+    }
+    updateFormulaBar(); // refresh button enable/disable — typing may change whether this now matches a known code
+    scheduleSave();
+  });
+  function applyFormulaFormat(mutator){
+    if(!currentFormulaCell) return;
+    const found = findRow(currentFormulaCell.rowId);
+    if(!found) return;
+    pushUndo();
+    const date = currentFormulaCell.date;
+    found.row.cells[date] = found.row.cells[date] || {};
+    mutator(found.row.cells[date]);
+    const gridInput = document.querySelector('.cellinput[data-cellinput="'+CSS.escape(currentFormulaCell.rowId+'|'+date)+'"]');
+    if(gridInput){
+      const wrap = gridInput.closest('.daycell');
+      if(wrap) wrap.style.cssText = cellStyle(found.row.cells[date], monthBand(date));
+    }
+    updateFormulaBar();
+    scheduleSave();
+  }
+  document.getElementById('formulaBoldBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.bold = !c.bold; }));
+  document.getElementById('formulaAlignLeftBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.align = 'left'; }));
+  document.getElementById('formulaAlignCenterBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.align = 'center'; }));
+  document.getElementById('formulaAlignRightBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.align = 'right'; }));
   document.getElementById('selectionCopyBtn').addEventListener('click', ()=>{
     const blocks = [...selectedProjectIds].map(id=>findBlock(id)).filter(Boolean);
     if(!blocks.length) return;

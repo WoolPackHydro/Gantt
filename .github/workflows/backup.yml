@@ -1,0 +1,42 @@
+name: Backup Gantt Data
+
+"on":
+  schedule:
+    # 9:00 UTC daily = 1am Pacific / 4am Eastern — a low-traffic window across all your offices
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}  # lets you trigger a backup manually anytime from the Actions tab
+
+permissions:
+  contents: write  # needed so this workflow can commit the backup file back to the repo
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Firebase Admin SDK
+        run: npm install firebase-admin
+
+      - name: Fetch and save backup
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node .github/scripts/backup.js
+
+      - name: Commit backup file
+        run: |
+          git config user.name "gantt-backup-bot"
+          git config user.email "actions@github.com"
+          git add backups/
+          if git diff --staged --quiet; then
+            echo "No changes to commit (already backed up today)."
+          else
+            git commit -m "Automated backup $(date -u +%Y-%m-%d)"
+            git push
+          fi

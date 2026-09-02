@@ -566,6 +566,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   // clicking away), unlike the overflow auto-clear rule above which is Tab-specific. This is
   // informational only — it never blocks or changes the assignment, just flags it.
   function checkOverflowConflict(rowId, date){
+    if(!getConflictWarningsEnabled()) return;
     const ctx = findProjectRoleRow(rowId);
     if(!ctx) return;
     const cellObj = ctx.row.cells[date];
@@ -908,6 +909,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   // explicitly typed it in, so the restore feature isn't discoverable just by opening Settings.
   function getBackupRepo(){ try{ return localStorage.getItem('woolpert_backup_repo') || ''; }catch(e){ return ''; } }
   function setBackupRepo(val){ try{ if(val) localStorage.setItem('woolpert_backup_repo', val); else localStorage.removeItem('woolpert_backup_repo'); }catch(e){} }
+  // Personal to this browser, not shared state — someone might find the warnings unhelpful for
+  // their own workflow without wanting to turn them off for everyone else on the team.
+  function getConflictWarningsEnabled(){ try{ return localStorage.getItem('woolpert_conflict_warnings')!=='off'; }catch(e){ return true; } }
+  function setConflictWarningsEnabled(on){ try{ localStorage.setItem('woolpert_conflict_warnings', on?'on':'off'); }catch(e){} }
   let perColWidths = {}; // perColWidths[tabId][dateIso] = widthPx — a personal, per-section, per-column override
   try{ const savedPW = localStorage.getItem('woolpert_percol_widths'); if(savedPW) perColWidths = JSON.parse(savedPW); }catch(e){}
   function savePerColWidths(){ try{ localStorage.setItem('woolpert_percol_widths', JSON.stringify(perColWidths)); }catch(e){} }
@@ -977,7 +982,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const tabs = getTabs();
     const leftTabs = tabs.filter(t=>t.id!=='history' && t.id!=='settings');
     const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings');
-    const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>';
+    const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>'
+      + '<label class="pastdays-inline"><input type="checkbox" id="conflictWarningsToggle"'+(getConflictWarningsEnabled()?' checked':'')+'> Conflict Warnings</label>';
     bar.innerHTML = '<div class="tabgroup">'+leftTabs.map(tabBtn).join('')+'</div>'
       + '<div class="tabgroup">'+pastDaysHTML+rightTabs.map(tabBtn).join('')+'</div>';
   }
@@ -1891,6 +1897,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.id==='hidePastToggle'){
       state.hidePast = !t.checked;
       render(); scheduleSave();
+    } else if(t.id==='conflictWarningsToggle'){
+      setConflictWarningsEnabled(t.checked);
     } else if(t.matches('[data-blockselect]')){
       const id = t.dataset.blockselect;
       if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);

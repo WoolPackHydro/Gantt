@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNjQgNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTAiIGZpbGw9IiMwYjNhNGEiLz4KICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iNC4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTSAyNyAxMyBRIDMyIDE4IDM3IDEzIi8+CiAgICA8cGF0aCBkPSJNIDIxIDIwIFEgMzIgMzAgNDMgMjAiLz4KICAgIDxwYXRoIGQ9Ik0gMTUgMjggUSAzMiA0MyA0OSAyOCIvPgogICAgPHBhdGggZD0iTSA5IDM3IFEgMzIgNTcgNTUgMzciLz4KICAgIDxwYXRoIGQ9Ik0gMyA0NyBRIDMyIDcxIDYxIDQ3Ii8+CiAgPC9nPgo8L3N2Zz4K">
 <title>Woolpert Maritime — Gantt</title>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 <style>
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -1893,49 +1894,60 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         alert('No projects found in that date range.');
         return;
       }
-      const csvField = s=>{
-        const str = String(s==null?'':s);
-        return /[",\n]/.test(str) ? '"'+str.replace(/"/g,'""')+'"' : str;
-      };
       const rows = filtered.map(e=>{
         const found = findBlockWithRegion(e.blockId);
         if(found){
           const b = found.block;
           const status = b.archived ? 'Completed' : (b.tabled ? 'Tabled' : 'Active');
           return {
-            name: b.title || e.name,
-            dateCreated: e.dateCreated,
-            office: found.regionTitle,
-            projectNumber: b.projectNumber || '',
-            status,
-            pm: b.pm || '',
-            phaseManager: b.phaseManager || ''
+            'Project Name': b.title || e.name,
+            'Date Added': e.dateCreated,
+            'Office': found.regionTitle,
+            'Project Number': b.projectNumber || '',
+            'Status': status,
+            'PM': b.pm || '',
+            'Phase Manager': b.phaseManager || ''
           };
         }
         // Project no longer found live — either transferred (which assigns a new id) or
         // permanently deleted. Fall back to the last-known snapshot rather than dropping it,
         // since the whole point is to never lose track of something that needs billing.
         return {
-          name: e.name,
-          dateCreated: e.dateCreated,
-          office: e.regionTitle || '(unknown)',
-          projectNumber: e.projectNumber || '',
-          status: 'Removed from Gantt',
-          pm: e.pm || '',
-          phaseManager: e.phaseManager || ''
+          'Project Name': e.name,
+          'Date Added': e.dateCreated,
+          'Office': e.regionTitle || '(unknown)',
+          'Project Number': e.projectNumber || '',
+          'Status': 'Removed from Gantt',
+          'PM': e.pm || '',
+          'Phase Manager': e.phaseManager || ''
         };
       });
-      let csv = 'Project Name,Date Added,Office,Project Number,Status,PM,Phase Manager\n';
-      rows.forEach(r=>{
-        csv += [r.name, r.dateCreated, r.office, r.projectNumber, r.status, r.pm, r.phaseManager].map(csvField).join(',')+'\n';
-      });
-      const blob = new Blob([csv], {type:'text/csv'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
       const rangeLabel = (fromVal||toVal) ? '-'+(fromVal||'start')+'_to_'+(toVal||'now') : '';
-      a.href = url; a.download = 'new-project-list'+rangeLabel+'-exported-'+TODAY_ISO+'.csv';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const baseName = 'new-project-list'+rangeLabel+'-exported-'+TODAY_ISO;
+
+      if(window.XLSX){
+        const ws = XLSX.utils.json_to_sheet(rows);
+        ws['!cols'] = [{wch:30},{wch:12},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16}];
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'New Projects');
+        XLSX.writeFile(wb, baseName+'.xlsx');
+      } else {
+        // Library didn't load (blocked network, offline, etc.) — CSV still opens fine in Excel,
+        // just without the automatic column widths.
+        const csvField = s=>{
+          const str = String(s==null?'':s);
+          return /[",\n]/.test(str) ? '"'+str.replace(/"/g,'""')+'"' : str;
+        };
+        let csv = Object.keys(rows[0]).map(csvField).join(',')+'\n';
+        rows.forEach(r=>{ csv += Object.values(r).map(csvField).join(',')+'\n'; });
+        const blob = new Blob([csv], {type:'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = baseName+'.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        alert('Note: exported as CSV instead of Excel because the Excel export library didn\'t load (check your internet connection). The file still opens fine in Excel.');
+      }
       return;
     }
     if(t.matches('#checkBackupsBtn')){

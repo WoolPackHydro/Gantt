@@ -1714,10 +1714,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!cellEl) return;
     const curDate = cellEl.dataset.date, curRow = cellEl.dataset.row;
     let targetEl = null;
-    if(e.key==='ArrowLeft' || e.key==='ArrowRight' || e.key==='Enter'){
+    if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
       const days = visibleDays();
       const di = days.indexOf(curDate);
-      const forward = e.key==='ArrowRight' || (e.key==='Enter' && !e.shiftKey);
+      const forward = e.key==='ArrowRight';
       const newDi = forward ? di+1 : di-1;
       if(newDi>=0 && newDi<days.length){
         targetEl = document.querySelector('.daycell[data-row="'+curRow+'"][data-date="'+days[newDi]+'"] .cellinput');
@@ -1725,7 +1725,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else {
       const rowEls = allRowElements();
       const ri = rowEls.findIndex(el=>el.dataset.row===curRow);
-      const forward = e.key==='ArrowDown' || (e.key==='Tab' && !e.shiftKey);
+      const forward = e.key==='ArrowDown' || ((e.key==='Tab'||e.key==='Enter') && !e.shiftKey);
       const newRi = forward ? ri+1 : ri-1;
       if(ri!==-1 && newRi>=0 && newRi<rowEls.length){
         const newRowId = rowEls[newRi].dataset.row;

@@ -517,6 +517,52 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!reg) return null;
     return reg.overflow.find(r=>r.initials && r.initials.toLowerCase()===key) || null;
   }
+  function isStatusCodeText(text){
+    const key = (text||'').trim().toLowerCase();
+    if(!key) return false;
+    return state.statusCodes.some(sc=>sc.code && sc.code.toLowerCase()===key);
+  }
+  // Keeps a person's status code (PTO, OOO, etc.) matched between the Roster and every
+  // office's overflow list, so it only ever needs to be typed once. Only fires for actual
+  // status codes — matching someone's own initials, a boat code, or any other text is left
+  // alone. Matched purely by initials; if a given office has no overflow row for this
+  // person at all, there's nothing to pair with and the rule is a no-op, per the stated
+  // "not everyone on Roster shows up in every office" caveat.
+  function syncStatusMirror(rowId, date){
+    let personKey = null;
+    const emp = state.employees.find(e=>e.id===rowId);
+    if(emp){
+      personKey = (emp.initials||'').trim().toLowerCase();
+    } else {
+      for(const rk of Object.keys(state.regions)){
+        const r = state.regions[rk].overflow.find(x=>x.id===rowId);
+        if(r){ personKey = (r.initials||'').trim().toLowerCase(); break; }
+      }
+    }
+    if(!personKey) return; // not a Roster or overflow row at all (e.g. a project role row) — rule doesn't apply
+    const source = emp || (()=>{ for(const rk of Object.keys(state.regions)){ const r = state.regions[rk].overflow.find(x=>x.id===rowId); if(r) return r; } return null; })();
+    if(!source) return;
+    const newValue = (source.cells[date] && source.cells[date].text || '').trim();
+    const newIsStatus = isStatusCodeText(newValue);
+
+    const pairs = [];
+    const rosterEmp = state.employees.find(e=>(e.initials||'').trim().toLowerCase()===personKey);
+    if(rosterEmp && rosterEmp.id!==rowId) pairs.push(rosterEmp);
+    Object.keys(state.regions).forEach(rk=>{
+      state.regions[rk].overflow.forEach(r=>{
+        if((r.initials||'').trim().toLowerCase()===personKey && r.id!==rowId) pairs.push(r);
+      });
+    });
+    if(!pairs.length) return; // no matching pair anywhere — ignore, per the stated rule
+
+    pairs.forEach(p=>{
+      const pairedValue = (p.cells[date] && p.cells[date].text || '').trim();
+      const pairedIsStatus = isStatusCodeText(pairedValue);
+      if((newIsStatus || pairedIsStatus) && pairedValue!==newValue){
+        p.cells[date] = {text:newValue};
+      }
+    });
+  }
   function tryAutoClearOverflow(rowId, date){
     const ctx = findProjectRoleRow(rowId);
     if(!ctx) return; // only applies to actual project role rows — not PTO, not overflow itself
@@ -560,6 +606,52 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
     return changed;
   }
+  // Pure detection, no side effects — returns conflict info or null.
+  function detectOverflowConflict(rowId, date){
+    const ctx = findProjectRoleRow(rowId);
+    if(!ctx) return null;
+    const cellObj = ctx.row.cells[date];
+    const text = (cellObj && cellObj.text || '').trim();
+    if(!text) return null;
+    const key = text.toLowerCase();
+    const person = employeeOrBoatByCode(key);
+    if(!person) return null;
+    const overflowRow = findOverflowRowByCode(ctx.regionKey, key);
+    if(!overflowRow) return null;
+    const overflowCell = overflowRow.cells[date];
+    const overflowText = overflowCell ? (overflowCell.text||'').trim() : '';
+    if(!overflowText) return null;
+    const statusMatch = state.statusCodes.find(sc=>sc.code && sc.code.toLowerCase()===overflowText.toLowerCase());
+    if(!statusMatch) return null;
+    return { rowId, date, who: person.name||person.initials||person.code, code: statusMatch.code, label: statusMatch.label||'' };
+  }
+  // Session-only (not persisted, not synced) — remembers which exact conflicts have already
+  // been alerted on, so re-renders (which happen constantly in a multi-user app, any time a
+  // teammate saves anything) never re-trigger the same, still-unresolved warning repeatedly.
+  // Cleared for a cell the moment its conflict resolves, so a genuinely new assignment later
+  // can warn again.
+  let warnedConflicts = new Set();
+  function conflictKey(c){ return c.rowId+'|'+c.date+'|'+c.who+'|'+c.code; }
+  function clearStaleWarning(rowId, date){
+    const prefix = rowId+'|'+date+'|';
+    Array.from(warnedConflicts).forEach(k=>{ if(k.startsWith(prefix)) warnedConflicts.delete(k); });
+  }
+  function showConflictAlert(conflicts){
+    if(conflicts.length===1){
+      const c = conflicts[0];
+      const dt = new Date(c.date+'T00:00:00');
+      const dateLabel = (dt.getMonth()+1)+'/'+dt.getDate();
+      alert('Warning: There is a conflict — '+c.who+' is marked "'+c.code+'"'+(c.label?' ('+c.label+')':'')+' on '+dateLabel+', but was just assigned to a job that day.');
+    } else {
+      const lines = conflicts.slice(0,10).map(c=>{
+        const dt = new Date(c.date+'T00:00:00');
+        return '• '+c.who+' — "'+c.code+'" on '+(dt.getMonth()+1)+'/'+dt.getDate();
+      });
+      let msg = 'Warning: There are '+conflicts.length+' conflicts:\n'+lines.join('\n');
+      if(conflicts.length>10) msg += '\n...and '+(conflicts.length-10)+' more.';
+      alert(msg);
+    }
+  }
   // Warns when someone gets assigned to a job on a day their overflow entry shows an actual
   // status code (PTO, OOO, etc.) rather than their own initials or blank — a likely sign
   // they're not really available. Fires no matter how the edit was confirmed (Tab, Enter,
@@ -567,25 +659,30 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   // informational only — it never blocks or changes the assignment, just flags it.
   function checkOverflowConflict(rowId, date){
     if(!getConflictWarningsEnabled()) return;
-    const ctx = findProjectRoleRow(rowId);
-    if(!ctx) return;
-    const cellObj = ctx.row.cells[date];
-    const text = (cellObj && cellObj.text || '').trim();
-    if(!text) return;
-    const key = text.toLowerCase();
-    const person = employeeOrBoatByCode(key);
-    if(!person) return;
-    const overflowRow = findOverflowRowByCode(ctx.regionKey, key);
-    if(!overflowRow) return;
-    const overflowCell = overflowRow.cells[date];
-    const overflowText = overflowCell ? (overflowCell.text||'').trim() : '';
-    if(!overflowText) return;
-    const statusMatch = state.statusCodes.find(sc=>sc.code && sc.code.toLowerCase()===overflowText.toLowerCase());
-    if(!statusMatch) return;
-    const dt = new Date(date+'T00:00:00');
-    const dateLabel = (dt.getMonth()+1)+'/'+dt.getDate();
-    const who = person.name || person.initials || person.code;
-    alert('Warning: There is a conflict — '+who+' is marked "'+statusMatch.code+'"'+(statusMatch.label?' ('+statusMatch.label+')':'')+' on '+dateLabel+', but was just assigned to a job that day.');
+    const c = detectOverflowConflict(rowId, date);
+    if(!c){ clearStaleWarning(rowId, date); return; }
+    const key = conflictKey(c);
+    if(warnedConflicts.has(key)) return;
+    warnedConflicts.add(key);
+    showConflictAlert([c]);
+  }
+  // Same rule, but for bulk operations (fill-handle, paste) touching many cells at once —
+  // every genuinely new conflict still gets flagged, just bundled into one alert instead of
+  // one popup per cell.
+  function checkOverflowConflictsBatch(cells){
+    if(!getConflictWarningsEnabled()) return;
+    const found = [];
+    const seenThisBatch = new Set();
+    cells.forEach(({rowId,date})=>{
+      const c = detectOverflowConflict(rowId, date);
+      if(!c){ clearStaleWarning(rowId, date); return; }
+      const key = conflictKey(c);
+      if(warnedConflicts.has(key) || seenThisBatch.has(key)) return;
+      seenThisBatch.add(key);
+      warnedConflicts.add(key);
+      found.push(c);
+    });
+    if(found.length) showConflictAlert(found);
   }
 
   // For accounting: logs a project the first time it's given a real name (so a client is
@@ -1401,6 +1498,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   document.addEventListener('mouseup', e=>{
     if(!fillDrag) return;
     if(fillDrag.axis==='v' || fillDrag.axis==='h') pushUndo();
+    const affectedCells = [];
     if(fillDrag.axis==='v'){
       const originEntry = fillDrag.group.find(g=>g.id===fillDrag.originRow);
       fillDrag.verticalRowIds.forEach(rid=>{
@@ -1409,6 +1507,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         fillDrag.patternDates.forEach((d,i)=>{
           const cellData = originEntry ? originEntry.patternCells[i] : null;
           found.row.cells[d] = cellData ? JSON.parse(JSON.stringify(cellData)) : {text:''};
+          affectedCells.push({rowId:rid, date:d});
         });
       });
     } else if(fillDrag.axis==='h'){
@@ -1424,12 +1523,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
           const offset = ((dIdx - patternStartIdx) % patternLen + patternLen) % patternLen;
           const cellData = g.patternCells[offset];
           found.row.cells[d] = cellData ? JSON.parse(JSON.stringify(cellData)) : {text:''};
+          affectedCells.push({rowId:g.id, date:d});
         });
       });
     }
     clearFillPreview(fillDrag);
     fillDrag = null;
+    affectedCells.forEach(c=>syncStatusMirror(c.rowId, c.date));
     render(); scheduleSave();
+    if(affectedCells.length) checkOverflowConflictsBatch(affectedCells);
   });
 
   // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
@@ -1668,6 +1770,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const anchorDateIdx = days.indexOf(currentSelection.dates[0]);
     if(anchorRowIdx===-1 || anchorDateIdx===-1) return;
     pushUndo();
+    const affectedCells = [];
     grid.forEach((rowVals, ri)=>{
       const targetRowEl = rowEls[anchorRowIdx+ri];
       if(!targetRowEl) return;
@@ -1677,9 +1780,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         const targetDate = days[anchorDateIdx+ci];
         if(!targetDate) return;
         found.row.cells[targetDate] = {text: val.trim()}; // text only — color always resolves fresh from colorForText
+        affectedCells.push({rowId: targetRowEl.dataset.row, date: targetDate});
       });
     });
+    affectedCells.forEach(c=>syncStatusMirror(c.rowId, c.date));
     render(); scheduleSave();
+    if(affectedCells.length) checkOverflowConflictsBatch(affectedCells);
   });
 
 
@@ -1708,6 +1814,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const wrap=t.closest('.daycell');
       wrap.style.cssText=cellStyle(found.row.cells[date], monthBand(date));
       if(currentFormulaCell && currentFormulaCell.rowId===rowId && currentFormulaCell.date===date) updateFormulaBar();
+      syncStatusMirror(rowId, date);
       scheduleSave();
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
@@ -2367,6 +2474,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(wrap) wrap.style.cssText = cellStyle(found.row.cells[date], monthBand(date));
     }
     updateFormulaBar(); // refresh button enable/disable — typing may change whether this now matches a known code
+    syncStatusMirror(currentFormulaCell.rowId, date);
     scheduleSave();
   });
   document.getElementById('formulaBarInput').addEventListener('blur', ()=>{
@@ -2452,7 +2560,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     currentSelection.rowIds.forEach(rid=>{
       const found = findRow(rid);
       if(!found) return;
-      currentSelection.dates.forEach(d=>{ found.row.cells[d] = {text:''}; });
+      currentSelection.dates.forEach(d=>{ found.row.cells[d] = {text:''}; syncStatusMirror(rid, d); });
     });
     render(); scheduleSave();
   });

@@ -462,6 +462,40 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     return null;
   }
+  function findBlockWithRegion(blockId){
+    for(const rk of Object.keys(state.regions)){
+      const reg = state.regions[rk];
+      const b = reg.blocks.find(x=>x.id===blockId);
+      if(b) return { block:b, regionKey:rk, regionTitle:reg.title };
+    }
+    return null;
+  }
+
+  // For accounting: logs a project the first time it's given a real name (so a client is
+  // never accidentally left off the billing list). Deliberately skips projects that are still
+  // sitting at the "New project" default — someone who clicked "+ Add project" and never typed
+  // anything shouldn't clutter this list. Snapshots office/project#/PM/phase manager alongside
+  // the name, refreshed on every call — this matters because a "transferred" project actually
+  // gets a brand-new id behind the scenes (the original is deleted), so a live lookup alone
+  // would make it silently vanish from her records the moment it's moved between offices.
+  // The date, once set, is never overwritten by later edits.
+  function trackProjectNaming(block){
+    const name = (block.title||'').trim();
+    if(!name || name==='New project') return;
+    if(!state.projectLog) state.projectLog = [];
+    const found = findBlockWithRegion(block.id);
+    const snapshot = {
+      name,
+      regionKey: found ? found.regionKey : undefined,
+      regionTitle: found ? found.regionTitle : undefined,
+      projectNumber: block.projectNumber || '',
+      pm: block.pm || '',
+      phaseManager: block.phaseManager || ''
+    };
+    const existing = state.projectLog.find(e=>e.blockId===block.id);
+    if(existing) Object.assign(existing, snapshot);
+    else state.projectLog.push(Object.assign({ blockId: block.id, dateCreated: TODAY_ISO }, snapshot));
+  }
 
   function migrateNoaaStructure(){
     // The original Charleston (3-boat crew) and Offshore Pensacola (follow-the-sun shift)
@@ -741,6 +775,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   let nameColWidth = null;
   try{ const savedNW = localStorage.getItem('woolpert_namecol_width'); if(savedNW) nameColWidth = parseInt(savedNW,10); }catch(e){}
+  // Deliberately NOT part of shared state — this stays known only on devices where someone has
+  // explicitly typed it in, so the restore feature isn't discoverable just by opening Settings.
+  function getBackupRepo(){ try{ return localStorage.getItem('woolpert_backup_repo') || ''; }catch(e){ return ''; } }
+  function setBackupRepo(val){ try{ if(val) localStorage.setItem('woolpert_backup_repo', val); else localStorage.removeItem('woolpert_backup_repo'); }catch(e){} }
   let perColWidths = {}; // perColWidths[tabId][dateIso] = widthPx — a personal, per-section, per-column override
   try{ const savedPW = localStorage.getItem('woolpert_percol_widths'); if(savedPW) perColWidths = JSON.parse(savedPW); }catch(e){}
   function savePerColWidths(){ try{ localStorage.setItem('woolpert_percol_widths', JSON.stringify(perColWidths)); }catch(e){} }
@@ -951,13 +989,30 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     html += '<div class="setsection"><h3>Status codes</h3><div class="setlist">'
       + settingsListHTML('statusCodes', state.statusCodes, [{name:'code',placeholder:'Code'},{name:'label',placeholder:'Label'}])
       + '</div><button class="btn" data-addsetitem="statusCodes">+ Add status code</button></div>';
+    html += accountingSettingsHTML();
     html += backupsSettingsHTML();
     html += '</div>';
     container.innerHTML = html;
   }
 
+  function accountingSettingsHTML(){
+    const log = state.projectLog || [];
+    const sorted = [...log].sort((a,b)=> b.dateCreated.localeCompare(a.dateCreated));
+    const statusLine = sorted.length
+      ? sorted.length+' project'+(sorted.length===1?'':'s')+' logged. Most recent: "'+escAttr(sorted[0].name)+'" on '+sorted[0].dateCreated+'.'
+      : 'No projects logged yet — this fills in automatically as new, named projects are created.';
+    return '<div class="setsection" id="accountingSection">'
+      + '<h3>New project list (for accounting)</h3>'
+      + '<p class="setnote">Every project gets logged here the first time it\'s given a real name — so nothing gets missed for billing. Projects left at the default "New project" title (never touched) are deliberately left off, to avoid clutter from accidental clicks. Includes project name, date added, office, project number, status, and PM/phase manager for follow-up.</p>'
+      + '<p class="setnote">'+statusLine+'</p>'
+      + '<div class="backup-row"><label>From:</label><input type="date" id="projectLogFrom"> '
+        + '<label>To:</label><input type="date" id="projectLogTo"> '
+        + '<span class="setnote" style="margin:0;">(leave both blank to export everything)</span></div>'
+      + '<button class="btn" id="exportProjectLogBtn">⬇ Export project list</button>'
+      + '</div>';
+  }
   function backupsSettingsHTML(){
-    const repo = state.backupRepo || '';
+    const repo = getBackupRepo();
     return '<div class="setsection" id="backupsSection">'
       + '<h3>Backups</h3>'
       + '<p class="setnote">A daily automated backup of everything runs separately in GitHub, independent of Firebase. Use this section to restore from one if data is ever lost or badly corrupted.</p>'
@@ -1466,10 +1521,16 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       scheduleSave();
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
-      if(field==='blocktitle'||field==='blockmeta'){ const b=findBlock(id); if(b) b[field==='blocktitle'?'title':'meta']=t.value; }
-      else if(field==='blockpm'){ const b=findBlock(id); if(b) b.pm=t.value; }
-      else if(field==='blockphase'){ const b=findBlock(id); if(b) b.phaseManager=t.value; }
-      else if(field==='blocknum'){ const b=findBlock(id); if(b) b.projectNumber=t.value; }
+      if(field==='blocktitle'||field==='blockmeta'){
+        const b=findBlock(id);
+        if(b){
+          b[field==='blocktitle'?'title':'meta']=t.value;
+          if(field==='blocktitle') trackProjectNaming(b);
+        }
+      }
+      else if(field==='blockpm'){ const b=findBlock(id); if(b){ b.pm=t.value; trackProjectNaming(b); } }
+      else if(field==='blockphase'){ const b=findBlock(id); if(b){ b.phaseManager=t.value; trackProjectNaming(b); } }
+      else if(field==='blocknum'){ const b=findBlock(id); if(b){ b.projectNumber=t.value; trackProjectNaming(b); } }
       else if(field==='role'){ const found=findRow(id); if(found) found.row.role=t.value; }
       else if(field==='subrowlabel'){ const found=findRow(id); if(found) found.row.label=t.value; }
       else if(field==='name'){ const found=findRow(id); if(found) found.row.name=t.value; }
@@ -1568,7 +1629,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   async function checkAvailableBackups(){
     const area = document.getElementById('backupListArea');
     if(!area) return;
-    const repo = (state.backupRepo||'').trim();
+    const repo = getBackupRepo().trim();
     if(!repo || !repo.includes('/')){
       area.innerHTML = '<p class="setnote">Enter and save a GitHub repo above first (format: username/reponame).</p>';
       return;
@@ -1801,20 +1862,78 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(t.matches('#saveBackupRepoBtn')){
       const input = document.getElementById('backupRepoInput');
       const val = input ? input.value.trim() : '';
-      state.backupRepo = val;
-      scheduleSave();
-      alert(val ? 'Saved.' : 'Cleared.');
+      setBackupRepo(val);
+      alert(val ? 'Saved on this device.' : 'Cleared.');
       return;
     }
     if(t.matches('#downloadBackupBtn')){
       const exportable = {};
-      ['regions','employees','boats','statusCodes','ptoLabel','ptoColor','regionOrder','backupRepo'].forEach(k=>{
+      ['regions','employees','boats','statusCodes','ptoLabel','ptoColor','regionOrder'].forEach(k=>{
         if(state[k]!==undefined) exportable[k]=state[k];
       });
       const blob = new Blob([JSON.stringify(exportable, null, 2)], {type:'application/json'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'gantt-backup-'+TODAY_ISO+'.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+    if(t.matches('#exportProjectLogBtn')){
+      const log = state.projectLog || [];
+      const fromVal = (document.getElementById('projectLogFrom')||{}).value || '';
+      const toVal = (document.getElementById('projectLogTo')||{}).value || '';
+      let filtered = log.filter(e=>{
+        if(fromVal && e.dateCreated < fromVal) return false;
+        if(toVal && e.dateCreated > toVal) return false;
+        return true;
+      });
+      filtered.sort((a,b)=> b.dateCreated.localeCompare(a.dateCreated));
+      if(!filtered.length){
+        alert('No projects found in that date range.');
+        return;
+      }
+      const csvField = s=>{
+        const str = String(s==null?'':s);
+        return /[",\n]/.test(str) ? '"'+str.replace(/"/g,'""')+'"' : str;
+      };
+      const rows = filtered.map(e=>{
+        const found = findBlockWithRegion(e.blockId);
+        if(found){
+          const b = found.block;
+          const status = b.archived ? 'Completed' : (b.tabled ? 'Tabled' : 'Active');
+          return {
+            name: b.title || e.name,
+            dateCreated: e.dateCreated,
+            office: found.regionTitle,
+            projectNumber: b.projectNumber || '',
+            status,
+            pm: b.pm || '',
+            phaseManager: b.phaseManager || ''
+          };
+        }
+        // Project no longer found live — either transferred (which assigns a new id) or
+        // permanently deleted. Fall back to the last-known snapshot rather than dropping it,
+        // since the whole point is to never lose track of something that needs billing.
+        return {
+          name: e.name,
+          dateCreated: e.dateCreated,
+          office: e.regionTitle || '(unknown)',
+          projectNumber: e.projectNumber || '',
+          status: 'Removed from Gantt',
+          pm: e.pm || '',
+          phaseManager: e.phaseManager || ''
+        };
+      });
+      let csv = 'Project Name,Date Added,Office,Project Number,Status,PM,Phase Manager\n';
+      rows.forEach(r=>{
+        csv += [r.name, r.dateCreated, r.office, r.projectNumber, r.status, r.pm, r.phaseManager].map(csvField).join(',')+'\n';
+      });
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const rangeLabel = (fromVal||toVal) ? '-'+(fromVal||'start')+'_to_'+(toVal||'now') : '';
+      a.href = url; a.download = 'new-project-list'+rangeLabel+'-exported-'+TODAY_ISO+'.csv';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
       return;

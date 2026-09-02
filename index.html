@@ -118,6 +118,14 @@
   .settings-wrap{padding:10px 2px;max-width:640px;}
   .setsection{margin-bottom:20px;}
   .setsection h3{font-size:12.5px;margin:0 0 6px;color:#1c1f22;}
+  .setnote{font-size:11px;color:#5a6472;margin:4px 0 10px;max-width:520px;}
+  .backup-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .backup-row label{font-size:11.5px;color:#1c1f22;}
+  .backup-row input[type="text"]{font-size:11.5px;padding:3px 6px;border:1px solid #c7ccd1;border-radius:3px;min-width:220px;}
+  .backup-block{border-top:1px solid #e2e5e8;padding-top:10px;margin-top:10px;}
+  .backup-block h4{font-size:11.5px;margin:0 0 4px;color:#1c1f22;}
+  .backup-list{list-style:none;padding:0;margin:8px 0 0;font-size:11.5px;}
+  .backup-list li{display:flex;align-items:center;gap:8px;padding:3px 0;}
   .setlist{display:flex;flex-direction:column;gap:3px;margin-bottom:6px;max-height:340px;overflow:auto;border:1px solid #e0e0e0;padding:4px;}
   .setrow{display:flex;align-items:center;gap:6px;padding:2px 2px;}
   .drag-handle{cursor:grab;padding:0 3px;color:#9aa0a6;font-size:13px;user-select:none;flex-shrink:0;}
@@ -943,8 +951,31 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     html += '<div class="setsection"><h3>Status codes</h3><div class="setlist">'
       + settingsListHTML('statusCodes', state.statusCodes, [{name:'code',placeholder:'Code'},{name:'label',placeholder:'Label'}])
       + '</div><button class="btn" data-addsetitem="statusCodes">+ Add status code</button></div>';
+    html += backupsSettingsHTML();
     html += '</div>';
     container.innerHTML = html;
+  }
+
+  function backupsSettingsHTML(){
+    const repo = state.backupRepo || '';
+    return '<div class="setsection" id="backupsSection">'
+      + '<h3>Backups</h3>'
+      + '<p class="setnote">A daily automated backup of everything runs separately in GitHub, independent of Firebase. Use this section to restore from one if data is ever lost or badly corrupted.</p>'
+      + '<div class="backup-row"><label>GitHub repo (format: username/reponame):</label>'
+        + '<input type="text" id="backupRepoInput" value="'+escAttr(repo)+'" placeholder="e.g. woody/gantt-tool">'
+        + '<button class="btn" id="saveBackupRepoBtn">Save</button></div>'
+      + '<div class="backup-row"><button class="btn" id="downloadBackupBtn">⬇ Download a backup of current data now</button></div>'
+      + '<div class="backup-block">'
+        + '<h4>Restore from GitHub backup</h4>'
+        + '<button class="btn" id="checkBackupsBtn">Check available backups</button>'
+        + '<div id="backupListArea"></div>'
+      + '</div>'
+      + '<div class="backup-block">'
+        + '<h4>Restore from a backup file</h4>'
+        + '<p class="setnote">Works even if GitHub can\'t be reached — pick a .json backup file you\'ve saved or downloaded.</p>'
+        + '<input type="file" id="backupFileInput" accept=".json">'
+      + '</div>'
+      + '</div>';
   }
 
   function weekRangeFor(dateIso){
@@ -1512,6 +1543,61 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       focusUndoSnapshot = null;
     }
   });
+  function applyRestoredData(data, sourceLabel){
+    if(!data || typeof data!=='object' || Array.isArray(data)){
+      alert('That backup doesn\'t look like valid data (not a proper object). Restore cancelled — nothing was changed.');
+      return;
+    }
+    if(!data.regions || typeof data.regions!=='object' || !Array.isArray(data.employees)){
+      alert('That backup is missing expected data (regions/employees). Restore cancelled — nothing was changed.');
+      return;
+    }
+    const empCount = data.employees.length;
+    const projectCount = Object.values(data.regions).reduce((n,r)=> n + (r.blocks?r.blocks.length:0), 0);
+    const msg = 'Restore from '+sourceLabel+'?\n\n'
+      + 'This backup contains '+empCount+' employees and '+projectCount+' active/archived projects.\n\n'
+      + 'This will REPLACE ALL CURRENT DATA for everyone using the app, right now, and cannot be undone for other people once it saves. Are you sure?';
+    if(!confirm(msg)) return;
+    pushUndo();
+    const preserved = { activeTab: state.activeTab, historyDate: state.historyDate, historySearch: state.historySearch, hidePast: state.hidePast };
+    state = Object.assign({}, data, preserved);
+    render();
+    scheduleSave();
+    alert('Restored from '+sourceLabel+'. Syncing to everyone now.');
+  }
+  async function checkAvailableBackups(){
+    const area = document.getElementById('backupListArea');
+    if(!area) return;
+    const repo = (state.backupRepo||'').trim();
+    if(!repo || !repo.includes('/')){
+      area.innerHTML = '<p class="setnote">Enter and save a GitHub repo above first (format: username/reponame).</p>';
+      return;
+    }
+    area.innerHTML = '<p class="setnote">Checking…</p>';
+    try{
+      const res = await fetch('https://api.github.com/repos/'+repo+'/contents/backups');
+      if(!res.ok){
+        area.innerHTML = '<p class="setnote">Couldn\'t find a backups folder in that repo (HTTP '+res.status+'). Check the repo name, make sure it\'s public, and that at least one automated backup has run.</p>';
+        return;
+      }
+      const files = await res.json();
+      const jsonFiles = files.filter(f=> f.name && f.name.endsWith('.json') && f.name!=='latest.json');
+      jsonFiles.sort((a,b)=> b.name.localeCompare(a.name));
+      if(!jsonFiles.length){
+        area.innerHTML = '<p class="setnote">No dated backups found yet — check back after the next scheduled run.</p>';
+        return;
+      }
+      let html = '<ul class="backup-list">';
+      jsonFiles.slice(0,30).forEach(f=>{
+        const dateLabel = f.name.replace('.json','');
+        html += '<li>'+dateLabel+' <button class="btn" data-restore-backup="'+escAttr(f.download_url)+'" data-restore-label="backup from '+dateLabel+'">Restore this</button></li>';
+      });
+      html += '</ul>';
+      area.innerHTML = html;
+    }catch(err){
+      area.innerHTML = '<p class="setnote">Couldn\'t reach GitHub: '+err.message+'</p>';
+    }
+  }
   document.addEventListener('change', e=>{
     const t=e.target;
     if(t.matches('.initials-input')){
@@ -1561,6 +1647,22 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.id==='historyDateInput'){
       state.historyDate = t.value;
       render();
+    } else if(t.matches('#backupFileInput')){
+      const file = t.files[0];
+      if(file){
+        const reader = new FileReader();
+        reader.onload = ()=>{
+          try{
+            const data = JSON.parse(reader.result);
+            applyRestoredData(data, 'uploaded file "'+file.name+'"');
+          }catch(err){
+            alert('Could not read that file as valid JSON: '+err.message);
+          }
+          t.value = '';
+        };
+        reader.onerror = ()=>{ alert('Could not read that file.'); t.value=''; };
+        reader.readAsText(file);
+      }
     }
   });
   document.addEventListener('click', e=>{
@@ -1695,6 +1797,47 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       else if(list==='boats') state.boats.push({id:newId(), code:'', name:'New boat', color:hashColor(newId())});
       else if(list==='statusCodes') state.statusCodes.push({id:newId(), code:'', label:'New code', color:hashColor(newId())});
       render(); scheduleSave(); return;
+    }
+    if(t.matches('#saveBackupRepoBtn')){
+      const input = document.getElementById('backupRepoInput');
+      const val = input ? input.value.trim() : '';
+      state.backupRepo = val;
+      scheduleSave();
+      alert(val ? 'Saved.' : 'Cleared.');
+      return;
+    }
+    if(t.matches('#downloadBackupBtn')){
+      const exportable = {};
+      ['regions','employees','boats','statusCodes','ptoLabel','ptoColor','regionOrder','backupRepo'].forEach(k=>{
+        if(state[k]!==undefined) exportable[k]=state[k];
+      });
+      const blob = new Blob([JSON.stringify(exportable, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'gantt-backup-'+TODAY_ISO+'.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+    if(t.matches('#checkBackupsBtn')){
+      checkAvailableBackups();
+      return;
+    }
+    if(t.matches('[data-restore-backup]')){
+      const url = t.dataset.restoreBackup;
+      const label = t.dataset.restoreLabel || 'GitHub backup';
+      t.disabled = true; t.textContent = 'Loading…';
+      fetch(url).then(r=>{
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return r.json();
+      }).then(data=>{
+        applyRestoredData(data, label);
+      }).catch(err=>{
+        alert('Could not load that backup: '+err.message+'. Check the repo name above and that the repo is public.');
+      }).finally(()=>{
+        t.disabled = false; t.textContent = 'Restore this';
+      });
+      return;
     }
     if(t.matches('[data-addregion]')){
       const key = 'region_'+newId();

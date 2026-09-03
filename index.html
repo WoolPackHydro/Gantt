@@ -1836,11 +1836,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
 
   function render(preserveScroll){
-    let scrollTop=0, scrollLeft=0, pageScrollY=0;
+    let scrollTop=0, scrollLeft=0, pageScrollY=0, setlistScrolls=[];
     if(preserveScroll!==false){
       const prev = document.querySelector('.sheetscroll');
       if(prev){ scrollTop=prev.scrollTop; scrollLeft=prev.scrollLeft; }
       pageScrollY = window.scrollY;
+      setlistScrolls = Array.from(document.querySelectorAll('.setlist')).map(el=>el.scrollTop);
     }
     const savedFocus = captureFocusState();
     renderTabbar();
@@ -1854,6 +1855,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const next = document.querySelector('.sheetscroll');
       if(next){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
       window.scrollTo(0, pageScrollY);
+      document.querySelectorAll('.setlist').forEach((el,i)=>{ if(setlistScrolls[i]!==undefined) el.scrollTop=setlistScrolls[i]; });
     }
     restoreFocusState(savedFocus);
     updateMobileWindowLabel();

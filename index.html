@@ -245,6 +245,8 @@
   .fbtn-colorreset{border:none;background:none;color:#9aa0a6;cursor:pointer;font-size:10px;padding:0 2px;}
   .fbtn-colorreset:hover:not(:disabled){color:#c0272d;}
   .fbtn-colorreset:disabled{opacity:0.4;cursor:default;}
+  .formula-richfmt{display:contents;}
+  .formula-more-toggle{display:none;}
 
   @media (max-width: 768px){
     /* iOS Safari auto-zooms the whole page when focusing any input smaller than 16px —
@@ -253,6 +255,10 @@
        interruption. Forcing every input to 16px+ stops the zoom from triggering at all. */
     input, textarea, select { font-size:16px !important; }
     .formula-bar input[type="text"]{width:140px;}
+    .formula-bar{position:relative;}
+    .formula-more-toggle{display:inline-flex;}
+    .formula-richfmt{display:none;}
+    .formula-richfmt.expanded{display:flex;flex-wrap:wrap;gap:6px;align-items:center;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #c7ccd1;border-top:none;padding:8px;z-index:50;box-shadow:0 4px 10px rgba(0,0,0,0.15);}
     /* The tab row was wrapping combined with space-between, which on a narrow screen
        pushed tabs off-screen instead of showing them. A single scrollable line is the
        standard, reliable fix — same pattern most mobile apps use for a tab strip. */
@@ -263,6 +269,7 @@
     .pastdays-inline{padding:9px 6px;font-size:12.5px;}
     header.intro{flex-wrap:wrap;row-gap:4px;}
     header.intro h1{font-size:12px;}
+    .conflict-section{flex-wrap:wrap;width:100%;margin-left:0;}
     .iconbtn{padding:5px 11px;font-size:16px;}
     .movebtn{padding:5px 7px!important;font-size:12px!important;}
     .del,.tablebtn,.copybtn{padding:3px 6px;font-size:12px;}
@@ -307,23 +314,26 @@
   <div class="formula-bar" id="formulaBar">
     <span class="formula-bar-label" id="formulaBarLabel">No cell selected</span>
     <input type="text" id="formulaBarInput" placeholder="Click a cell to see and edit its full text here" disabled>
-    <button class="fbtn" id="formulaBoldBtn" title="Bold" disabled><b>B</b></button>
-    <button class="fbtn" id="formulaAlignLeftBtn" title="Align left" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="0" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="0" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
-    <button class="fbtn" id="formulaAlignCenterBtn" title="Align center" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="2.5" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="1" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
-    <button class="fbtn" id="formulaAlignRightBtn" title="Align right" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="5" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="2" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
-    <select id="formulaFontSizeSelect" title="Font size" disabled>
-      <option value="">Auto</option>
-      <option value="8">8</option>
-      <option value="9">9</option>
-      <option value="10">10</option>
-      <option value="11">11</option>
-      <option value="12">12</option>
-      <option value="14">14</option>
-      <option value="16">16</option>
-    </select>
-    <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Text</span><input type="color" id="formulaTextColorInput" disabled><button class="fbtn-colorreset" id="formulaTextColorResetBtn" title="Reset to automatic text color" disabled>✕</button></span>
-    <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Fill</span><input type="color" id="formulaFillColorInput" disabled><button class="fbtn-colorreset" id="formulaFillColorResetBtn" title="Reset to automatic fill color" disabled>✕</button></span>
-    <span class="info-icon" data-tip="Formatting here applies only to this one cell — even one showing a real person, boat, or status code. Clearing all the text in a cell resets everything back to normal automatically.">i</span>
+    <button class="fbtn formula-more-toggle" id="formulaMoreToggle" title="Formatting options">Aa ▾</button>
+    <span class="formula-richfmt" id="formulaRichFmt">
+      <button class="fbtn" id="formulaBoldBtn" title="Bold" disabled><b>B</b></button>
+      <button class="fbtn" id="formulaAlignLeftBtn" title="Align left" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="0" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="0" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
+      <button class="fbtn" id="formulaAlignCenterBtn" title="Align center" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="2.5" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="1" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
+      <button class="fbtn" id="formulaAlignRightBtn" title="Align right" disabled><svg viewBox="0 0 14 10" width="13" height="10"><rect x="0" y="0" width="14" height="1.6" fill="currentColor"/><rect x="5" y="4.2" width="9" height="1.6" fill="currentColor"/><rect x="2" y="8.4" width="12" height="1.6" fill="currentColor"/></svg></button>
+      <select id="formulaFontSizeSelect" title="Font size" disabled>
+        <option value="">Auto</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+        <option value="14">14</option>
+        <option value="16">16</option>
+      </select>
+      <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Text</span><input type="color" id="formulaTextColorInput" disabled><button class="fbtn-colorreset" id="formulaTextColorResetBtn" title="Reset to automatic text color" disabled>✕</button></span>
+      <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Fill</span><input type="color" id="formulaFillColorInput" disabled><button class="fbtn-colorreset" id="formulaFillColorResetBtn" title="Reset to automatic fill color" disabled>✕</button></span>
+      <span class="info-icon" data-tip="Formatting here applies only to this one cell — even one showing a real person, boat, or status code. Clearing all the text in a cell resets everything back to normal automatically.">i</span>
+    </span>
     <span class="formula-bar-spacer"></span>
     <button id="mobilePrevWindow" class="fbtn fbtn-nav">◀ Earlier</button>
     <span id="mobileWindowLabel" class="formula-bar-daterange"></span>
@@ -1236,7 +1246,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const tabWidths = perColWidths[state.activeTab] || {};
     const def = defaultDayColWidth();
     const cols = days.map(d=>(tabWidths[d]||def)+'px').join(' ');
-    if(isMobileViewport()) return '28px '+(nameColWidth||85)+'px '+cols;
+    if(isMobileViewport()) return '28px '+(nameColWidth||58)+'px '+cols;
     return '34px '+(nameColWidth||150)+'px '+cols;
   }
   function gridHeaderHTML(days){
@@ -3112,6 +3122,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     updateFormulaBar();
     scheduleSave();
   }
+  document.getElementById('formulaMoreToggle').addEventListener('click', ()=>{
+    const el = document.getElementById('formulaRichFmt');
+    if(el) el.classList.toggle('expanded');
+  });
   document.getElementById('formulaBoldBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.bold = !effectiveBold(c); }));
   document.getElementById('formulaAlignLeftBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.align = 'left'; }));
   document.getElementById('formulaAlignCenterBtn').addEventListener('click', ()=> applyFormulaFormat(c=>{ c.align = 'center'; }));

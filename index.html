@@ -546,7 +546,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!personKey) return; // not a Roster or overflow row at all (e.g. a project role row) — rule doesn't apply
     const source = emp || (()=>{ for(const rk of Object.keys(state.regions)){ const r = state.regions[rk].overflow.find(x=>x.id===rowId); if(r) return r; } return null; })();
     if(!source) return;
-    const newValue = (source.cells[date] && source.cells[date].text || '').trim();
+    const sourceCellObj = source.cells[date] || {text:''};
+    const newValue = (sourceCellObj.text || '').trim();
     const newIsStatus = isStatusCodeText(newValue);
 
     const pairs = [];
@@ -559,11 +560,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
     if(!pairs.length) return; // no matching pair anywhere — ignore, per the stated rule
 
+    const sourceJson = JSON.stringify(sourceCellObj);
     pairs.forEach(p=>{
-      const pairedValue = (p.cells[date] && p.cells[date].text || '').trim();
+      const pairedCellObj = p.cells[date] || {text:''};
+      const pairedValue = (pairedCellObj.text || '').trim();
       const pairedIsStatus = isStatusCodeText(pairedValue);
-      if((newIsStatus || pairedIsStatus) && pairedValue!==newValue){
-        p.cells[date] = {text:newValue};
+      if((newIsStatus || pairedIsStatus) && JSON.stringify(pairedCellObj)!==sourceJson){
+        p.cells[date] = JSON.parse(sourceJson); // full copy — text, comment, color, bold, align, whatever's there
       }
     });
   }
@@ -853,16 +856,17 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const allDates = new Set();
       refs.forEach(r=>{ Object.keys(r.cells||{}).forEach(d=>allDates.add(d)); });
       allDates.forEach(date=>{
-        let statusValue = null;
+        let statusCellObj = null;
         for(const r of refs){
           const t = (r.cells[date] && r.cells[date].text || '').trim();
-          if(isStatusCodeText(t)){ statusValue = t; break; }
+          if(isStatusCodeText(t)){ statusCellObj = r.cells[date]; break; }
         }
-        if(!statusValue) return;
+        if(!statusCellObj) return;
+        const statusJson = JSON.stringify(statusCellObj);
         refs.forEach(r=>{
           const current = (r.cells[date] && r.cells[date].text || '').trim();
           if(!current){
-            r.cells[date] = {text: statusValue};
+            r.cells[date] = JSON.parse(statusJson); // full copy — text, comment, color, etc.
             changed = true;
           }
         });
@@ -1930,6 +1934,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     found.row.cells[date] = found.row.cells[date] || {text:''};
     if(val.trim()==='') delete found.row.cells[date].comment;
     else found.row.cells[date].comment = val;
+    syncStatusMirror(rowId, date);
     render(); scheduleSave();
   });
 

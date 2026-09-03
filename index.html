@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNjQgNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTAiIGZpbGw9IiMwYjNhNGEiLz4KICA8ZyBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iNC4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiPgogICAgPHBhdGggZD0iTSAyNyAxMyBRIDMyIDE4IDM3IDEzIi8+CiAgICA8cGF0aCBkPSJNIDIxIDIwIFEgMzIgMzAgNDMgMjAiLz4KICAgIDxwYXRoIGQ9Ik0gMTUgMjggUSAzMiA0MyA0OSAyOCIvPgogICAgPHBhdGggZD0iTSA5IDM3IFEgMzIgNTcgNTUgMzciLz4KICAgIDxwYXRoIGQ9Ik0gMyA0NyBRIDMyIDcxIDYxIDQ3Ii8+CiAgPC9nPgo8L3N2Zz4K">
 <title>Woolpert Maritime — Gantt</title>
 <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -28,7 +28,7 @@
   .roster-note{font-size:11px;color:#5a6472;padding:6px 12px;background:#eef4fa;border-bottom:1px solid #c9c9c9;}
   .info-icon{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid #9aa0a6;color:#9aa0a6;font-size:9.5px;font-style:normal;font-weight:700;cursor:help;margin-left:4px;flex-shrink:0;user-select:none;line-height:1;}
   .info-icon:hover, .info-icon.tip-active{border-color:#2f6fb0;color:#2f6fb0;}
-  .shared-tooltip{position:fixed;background:#1c1f22;color:#fff;padding:7px 10px;border-radius:5px;font-size:11px;font-weight:400;line-height:1.4;max-width:230px;opacity:0;visibility:hidden;transition:opacity 0.12s;z-index:9999;pointer-events:none;text-align:left;}
+  .shared-tooltip{position:fixed;background:#1c1f22;color:#fff;padding:8px 11px;border-radius:5px;font-size:11px;font-weight:400;line-height:1.5;max-width:250px;white-space:pre-line;opacity:0;visibility:hidden;transition:opacity 0.12s;z-index:9999;pointer-events:none;text-align:left;}
   .shared-tooltip.visible{opacity:1;visibility:visible;}
   .pastdays-inline input{margin:0;position:relative;top:-1px;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
@@ -249,11 +249,13 @@
   .formula-more-toggle{display:none;}
 
   @media (max-width: 768px){
-    /* iOS Safari auto-zooms the whole page when focusing any input smaller than 16px —
-       that's the actual cause of the zoom-on-tap, the header/undo button being shoved
-       around afterward, and (combined with the resize watcher below) the mid-edit
-       interruption. Forcing every input to 16px+ stops the zoom from triggering at all. */
-    input, textarea, select { font-size:16px !important; }
+    /* Zoom is disabled at the viewport level (see the <meta name="viewport"> tag), which
+       is what actually stops iOS Safari's zoom-on-focus — so inputs no longer need to stay
+       at 16px+ just to dodge that bug, and can go back to a size that keeps cells compact.
+       The formula bar's own input stays larger on purpose — it's the comfortable, full-text
+       reading surface, distinct from the small grid cells beneath it. */
+    input, textarea, select { font-size:13px !important; }
+    #formulaBarInput { font-size:15px !important; }
     .formula-bar input[type="text"]{width:100px;}
     .formula-bar-label{max-width:80px;min-width:0;}
     .formula-bar{position:relative;}
@@ -271,6 +273,7 @@
     header.intro{flex-wrap:wrap;row-gap:4px;}
     header.intro h1{font-size:12px;}
     .conflict-section{flex-wrap:wrap;width:100%;margin-left:0;}
+    .idname{font-weight:600;}
     .iconbtn{padding:5px 11px;font-size:16px;}
     .movebtn{padding:5px 7px!important;font-size:12px!important;}
     .del,.tablebtn,.copybtn{padding:3px 6px;font-size:12px;}
@@ -302,7 +305,7 @@
     <div class="spacer"></div>
     <label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"> Show past days</label>
     <span class="conflict-section">
-      <span class="conflict-section-label">Conflict Warnings<span class="info-icon" data-tip="Each of these can be turned on or off independently, just for your own browser — it won't change what anyone else on the team sees. Hover a checkbox for what it specifically checks.">i</span></span>
+      <span class="conflict-section-label">Conflict Warnings<span class="info-icon" data-tip="Each toggle is personal to your own browser — turning one off won't change what anyone else on the team sees.&#10;&#10;Hover a checkbox to see exactly what it checks for.">i</span></span>
       <label class="pastdays-inline" title="Warns if someone's assigned to a job while their overflow shows PTO, OOO, or another status code."><input type="checkbox" id="overflowConflictToggle"> Overflow conflicts</label>
       <label class="pastdays-inline" title="Warns if the same person or boat is on two different projects the same day. Off by default — often intentional, like a processor working two jobs or a double-header survey."><input type="checkbox" id="doubleBookConflictToggle"> Other-project conflicts</label>
     </span>
@@ -333,7 +336,7 @@
       </select>
       <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Text</span><input type="color" id="formulaTextColorInput" disabled><button class="fbtn-colorreset" id="formulaTextColorResetBtn" title="Reset to automatic text color" disabled>✕</button></span>
       <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Fill</span><input type="color" id="formulaFillColorInput" disabled><button class="fbtn-colorreset" id="formulaFillColorResetBtn" title="Reset to automatic fill color" disabled>✕</button></span>
-      <span class="info-icon" data-tip="Formatting here applies only to this one cell — even one showing a real person, boat, or status code. Clearing all the text in a cell resets everything back to normal automatically.">i</span>
+      <span class="info-icon" data-tip="Formatting here only affects this one cell — even one showing a real person, boat, or status code.&#10;&#10;Clear all the text in a cell and the formatting resets back to normal automatically.">i</span>
     </span>
     <span class="formula-bar-spacer"></span>
     <button id="mobilePrevWindow" class="fbtn fbtn-nav">◀ Earlier</button>
@@ -1262,7 +1265,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const label = widthPx >= 82 ? g.label.toUpperCase() : '';
       html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+label+'</div>';
     });
-    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="info-icon" data-tip="Tip: the small blue square at a selected cell\'s corner lets you drag to fill a value or repeat a pattern across cells. Right-click any cell to leave a comment on it. You can copy/paste directly with Excel. Tab or Enter moves down a row after typing; arrow keys move any direction.">i</span><span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
+    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="info-icon" data-tip="Drag the blue square at a selected cell\'s corner to fill a value into other cells, or repeat a pattern.\n\nRight-click any cell to leave a comment on it.\n\nCopy and paste works directly with Excel.\n\nTab or Enter moves down a row after typing. Arrow keys move any direction.">i</span><span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
     days.forEach(d=> html += dateHeadHTML(d));
     return html;
   }
@@ -1331,7 +1334,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const archivedBlocks = reg.blocks.filter(b=>b.archived);
     const tabledBlocks = reg.blocks.filter(b=>!b.archived && b.tabled);
     let html = gridHeaderHTML(days);
-    html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow<span class="info-icon" data-tip="Tip: drag the \u283F handle to reorder this list by hand. Typing someone\'s initials into a job below and pressing Tab automatically removes them from here; press Enter instead to leave them listed in both places. Status codes (PTO, OOO, etc.) entered here automatically match up with the company-wide Roster too.">i</span></span></div>';
+    html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow<span class="info-icon" data-tip="Drag the \u283F handle to reorder this list by hand.\n\nType someone\'s initials into a job below and press Tab — they\'re automatically removed from here. Press Enter instead to keep them listed in both places.\n\nStatus codes (PTO, OOO, etc.) entered here automatically match the company-wide Roster too.">i</span></span></div>';
     reg.overflow.forEach(row=>{
       html += identityLabelHTML(row, {deletable:true, editable:true, reorderable:true, regionKey:regionKey});
       days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
@@ -1372,7 +1375,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const label = n===1 ? '"'+escAttr(projectClipboard.blocks[0].title)+'"' : n+' projects';
       pasteBtn = '<button class="pasteprojectbtn" data-pasteblock-region="'+regionKey+'">+ '+verb+' '+label+' here</button>';
     }
-    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'<span class="info-icon" data-tip="Tip: check the box on multiple projects to copy, transfer, or mark them complete in bulk. Copy keeps the original in place; Transfer removes it once pasted elsewhere. \'Tabled for later\' hides a project without marking it done. Add a sub-group heading inside a project to split a crew by boat or shift.">i</span></div></div>';
+    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'<span class="info-icon" data-tip="Check the box on multiple projects to copy, transfer, or mark them complete in bulk.\n\nCopy leaves the original in place. Transfer removes it once pasted elsewhere.\n\n\'Tabled for later\' hides a project without marking it done.\n\nAdd a sub-group heading inside a project to split a crew by boat or shift.">i</span></div></div>';
     let archivedHTML = '';
     if(archivedBlocks.length){
       archivedHTML = '<details class="archived-wrap"><summary>Completed projects ('+archivedBlocks.length+') — data preserved, viewable in History</summary>'
@@ -1461,7 +1464,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       : 'No projects logged yet — this fills in automatically as new, named projects are created.';
     return '<div class="setsection" id="accountingSection">'
       + '<h3>New project list (for accounting)</h3>'
-      + '<p class="setnote">Every project gets logged here the first time it\'s given a real name — so nothing gets missed for billing. Projects left at the default "New project" title (never touched) are deliberately left off, to avoid clutter from accidental clicks. Includes project name, date added, office, project number, status, and PM/phase manager for follow-up.</p>'
+      + '<p class="setnote">Every project is logged here the first time it\'s given a real name — so nothing gets missed for billing. Projects still at the default "New project" title are left off, to avoid clutter from accidental clicks. Each entry includes the project name, date added, office, project number, status, and PM/phase manager.</p>'
       + '<p class="setnote">'+statusLine+'</p>'
       + '<div class="backup-row"><label>From:</label><input type="date" id="projectLogFrom"> '
         + '<label>To:</label><input type="date" id="projectLogTo"> '
@@ -1708,27 +1711,34 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '<p class="setnote">A few things worth knowing that aren\'t always obvious at first glance — a couple minutes here can save a lot of time later.</p></div>';
 
     html += '<div class="tip-step"><h4>1. Click any cell to see and edit its full text</h4>'
-      + '<p>The formula bar at the top of the screen always shows the full contents of whatever cell you\'ve clicked, and lets you type there instead of squeezing it into the narrow cell itself — handy the moment a note or name doesn\'t fit. Type there or in the cell directly; they stay in sync either way. (But really, any long message like this is better off as a comment — see the next tip.)</p>'
+      + '<p>Click any cell, and the formula bar at the top always shows its full contents. Type there instead of squeezing text into the narrow cell — handy the moment a note or name doesn\'t fit.</p>'
+      + '<p>Type in either place and they stay in sync. (Though honestly, anything this long is better off as a comment — see the next tip.)</p>'
       + '<div class="tip-mock"><div class="tip-mock-formulabar"><span class="tip-mock-label">WT — 9/2</span><span class="tip-mock-input">Bring extra survey gear tomorrow</span><span class="tip-mock-btn"><b>B</b></span><span class="tip-mock-btn">Left</span></div></div>'
       + '</div>';
 
     html += '<div class="tip-step"><h4>2. Right-click any cell to leave a comment on it</h4>'
-      + '<p>A small red triangle marks any cell with a comment — hover it to read what\'s there. This is the right spot for a detail that doesn\'t belong in the cell\'s own text, like "put boat on the trailer at end of day," "9am low tide," or "1 hour appt at 2pm."</p>'
+      + '<p>Right-click a cell to add a comment. A small red triangle marks it afterward — hover to read what\'s there.</p>'
+      + '<p>Good for a detail that doesn\'t belong in the cell\'s own text, like "put boat on the trailer at end of day," "9am low tide," or "1 hour appt at 2pm."</p>'
       + '<div class="tip-mock"><div class="tip-mock-cell" style="background:#f7fafb;position:relative;">AS<span class="tip-mock-comment-triangle"></span></div></div>'
       + '</div>';
 
     html += '<div class="tip-step"><h4>3. Drag the little blue square to fill or repeat a pattern</h4>'
-      + '<p>Click a cell and a small blue square appears at its corner — drag it down or across to copy that value into other cells. Select a whole week first (including blank weekend cells) and drag further, and it repeats that exact pattern instead of just stamping one value everywhere.</p>'
+      + '<p>Click a cell, and a small blue square appears at its corner. Drag it down or across to copy that value into other cells.</p>'
+      + '<p>Want to repeat a weekly pattern instead? Select the whole week first — including any blank weekend cells — then drag. It repeats that exact pattern rather than stamping one value everywhere.</p>'
       + '<div class="tip-mock"><div class="tip-mock-cell">AS<span class="tip-mock-fillsquare"></span></div></div>'
       + '</div>';
 
     html += '<div class="tip-step"><h4>4. Assign someone with Tab, and they\'re cleared from overflow automatically</h4>'
-      + '<p>Type someone\'s initials into a job and press <b>Tab</b> — if they were sitting in that office\'s "available" list for that day, they\'re removed automatically, since they\'re no longer free. Take them off the job later and they pop right back into overflow on their own. Press <b>Enter</b> instead (or click away) and they stay listed in both places — so the choice is always yours.</p>'
+      + '<p>Type someone\'s initials into a job, then press <b>Tab</b>. If they were on that office\'s "available" list for the day, they\'re removed from it automatically — they\'re no longer free.</p>'
+      + '<p>Take them off the job later, and they\'re added back to that list on their own.</p>'
+      + '<p>Want them listed in both places instead? Press <b>Enter</b> (or just click away) rather than Tab. The choice is always yours.</p>'
       + '<div class="tip-mock"><div class="tip-mock-row"><div class="tip-mock-cell">DF</div><span class="tip-mock-tag">overflow</span><span class="tip-mock-arrow">→ Tab →</span><div class="tip-mock-cell">DF</div><span class="tip-mock-tag">project</span></div></div>'
       + '</div>';
 
     html += '<div class="tip-step"><h4>5. Handle a whole project at once</h4>'
-      + '<p>Every project header has buttons for moving it up or down the list, copying or transferring it to a different office, and marking it complete. Check the box on several projects to do any of that in bulk. "Tabled for later" hides a project without marking it done — bring it back anytime from where you tabled it.</p>'
+      + '<p>Every project header has buttons to move it up or down the list, copy or transfer it to a different office, and mark it complete.</p>'
+      + '<p>Check the box on several projects to do any of that in bulk.</p>'
+      + '<p>"Tabled for later" hides a project without marking it done — bring it back anytime from where you tabled it.</p>'
       + '<div class="tip-mock"><div class="tip-mock-row"><span class="tip-mock-btn">☐</span><span class="tip-mock-btn">↑</span><span class="tip-mock-btn">↓</span><span class="tip-mock-btn">⧉</span><span class="tip-mock-btn">−</span><span class="tip-mock-btn">✕</span></div></div>'
       + '</div>';
 
@@ -1806,7 +1816,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const selectedOffice = state.historySnapshotOffice || 'pto';
     const snapDate = state.historyDate || TODAY_ISO;
     html += '<div class="setsection"><h3>Look back at a specific day</h3>'
-      + '<p class="setnote">This shows how things stood at the <b>end</b> of the day you pick, not the start of it. The backup runs in the very early morning (around 1am Alaska time) of the <i>following</i> day — right after Alaska\'s own day rolls over, the same day-boundary the rest of this app already uses since Alaska always finishes last. So picking 9/2 means "everything that had happened by the time 9/2 wrapped up," not what things looked like first thing that morning.</p>'
+      + '<p class="setnote">This shows how things stood at the <b>end</b> of the day you pick, not the start of it. The backup runs around 1am Alaska time the following morning, right after Alaska\'s own day rolls over — the same day-boundary the rest of this app already uses, since Alaska always finishes last.</p>'
+      + '<p class="setnote">So picking 9/2 means "everything that had happened by the time 9/2 wrapped up," not what things looked like first thing that morning.</p>'
       + '<div class="hist-quickjump">'
         + '<label>Office: <select id="snapshotOfficeSelect">'+officeOptions.map(o=>'<option value="'+escAttr(o.key)+'"'+(o.key===selectedOffice?' selected':'')+'>'+escAttr(o.label)+'</option>').join('')+'</select></label>'
         + '<label>Date: <input type="date" id="snapshotDateInput" value="'+snapDate+'"></label>'

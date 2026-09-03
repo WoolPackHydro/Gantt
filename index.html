@@ -190,10 +190,19 @@
   .histtable th{background:#eef0f2;font-weight:600;color:#5a6472;}
   .histtable td.histlabel,.histtable td:first-child{text-align:left;font-weight:500;white-space:nowrap;}
   .histempty{font-size:11.5px;color:#5a6472;}
-  .snap-table{width:100%;max-width:520px;}
-  .snap-table td.histlabel{width:60%;}
-  .snap-empty{color:#c3c8cc;}
-  .histsubhead-row{font-size:9.5px;font-weight:700;font-style:italic;color:#5a6472;background:rgba(0,0,0,.04);padding:4px 6px!important;text-transform:uppercase;letter-spacing:.03em;text-align:left!important;}
+  .snapshot-modal{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:5000;display:none;align-items:center;justify-content:center;padding:20px;}
+  .snapshot-modal-inner{background:#eef3f5;width:100%;height:100%;max-width:1400px;border-radius:8px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.3);}
+  .snapshot-modal-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1c1f22;color:#fff;flex-shrink:0;}
+  .snapshot-modal-label{font-size:13px;font-weight:600;}
+  .snapshot-modal-spacer{flex:1;}
+  .snapshot-modal-header button{font-size:12px;padding:5px 11px;border:1px solid #5a6472;background:#2c2f33;color:#fff;cursor:pointer;border-radius:3px;}
+  .snapshot-modal-header button:hover{background:#3c3f43;}
+  #snapshotModalClose{font-size:14px;padding:5px 10px;}
+  .snapshot-modal-badge{font-size:10.5px;color:#5a6472;background:#fff7d6;padding:5px 14px;border-bottom:1px solid #e2d9a8;flex-shrink:0;}
+  .snapshot-modal-body{flex:1;display:flex;flex-direction:column;min-height:0;padding:8px;}
+  .snap-sheetscroll{height:100%;}
+  .snap-celltext{display:block;width:100%;color:inherit;font-weight:inherit;text-align:inherit;font-size:inherit;padding:1px 0;box-sizing:border-box;}
+  .datehead.snap-centered{outline:2px solid #2f6fb0;outline-offset:-2px;}
   .histnote{font-size:9.5px;color:#5a6472;border-bottom:1px dotted #5a6472;cursor:help;}
   .hist-quickjump{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
   .hist-quickjump button{font-size:11.5px;padding:5px 11px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;border-radius:3px;}
@@ -1527,46 +1536,94 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       return null;
     }
   }
-  function renderSnapshotOfficeHTML(snap, officeKey, dateIso){
-    function cellHTML(cellObj){
-      const text = cellObj ? (cellObj.text||'') : '';
-      if(!text) return '<td class="snap-empty">—</td>';
-      const style = snapshotCellStyle(snap, cellObj);
-      const comment = cellObj.comment ? ' title="'+escAttr(cellObj.comment)+'"' : '';
-      return '<td style="'+style+'"'+comment+'>'+escAttr(text)+'</td>';
-    }
+  // --- Full visual snapshot grid: mirrors the live grid's exact structure and CSS classes
+  // so this looks like a genuine screen-grab of that day — sticky columns, month headers,
+  // project blocks, color-coded cells — just read-only and independently scrollable. These
+  // are deliberately separate functions from the live editable ones, not a shared refactor
+  // of them, so the live grid is never touched or put at any risk.
+  function snapshotDaysWindow(centerDateIso){
+    const dt = new Date(centerDateIso+'T00:00:00');
+    const days = [];
+    for(let i=-10;i<=50;i++){ const d=new Date(dt); d.setDate(dt.getDate()+i); days.push(isoDate(d)); }
+    return days;
+  }
+  function snapshotGridTemplateColumns(days){
+    const w = defaultDayColWidth();
+    const cols = days.map(()=>w+'px').join(' ');
+    return (isMobileViewport() ? '28px 85px ' : '34px 150px ')+cols;
+  }
+  function snapshotDateHeadHTML(d, centerDateIso){
+    const dt = new Date(d+'T00:00:00');
+    const cls = (d===TODAY_ISO?' today':'') + (d===centerDateIso?' snap-centered':'');
+    const style = d===TODAY_ISO ? '' : ' style="background:'+monthBand(d)+'"';
+    return '<div class="cell datehead'+cls+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span></div>';
+  }
+  function snapshotGridHeaderHTML(days, centerDateIso){
+    let html = '<div class="cell monthcorner" style="grid-column:span 2;"></div>';
+    monthGroups(days).forEach(g=>{ html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+g.label.toUpperCase()+'</div>'; });
+    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date</div>';
+    days.forEach(d=> html += snapshotDateHeadHTML(d, centerDateIso));
+    return html;
+  }
+  function snapshotDayCellHTML(snap, cellObj){
+    const text = cellObj ? (cellObj.text||'') : '';
+    const style = snapshotCellStyle(snap, cellObj);
+    const comment = cellObj && cellObj.comment ? cellObj.comment : '';
+    const commentClass = comment ? ' has-comment' : '';
+    const titleAttr = comment ? ' title="'+escAttr(comment)+'"' : '';
+    return '<div class="cell daycell'+commentClass+'" style="'+style+'"'+titleAttr+'><span class="snap-celltext">'+escAttr(text)+'</span></div>';
+  }
+  function snapshotIdentityLabelHTML(snap, row){
+    const color = snapshotColorForText(snap, row.initials) || '#f2f2f2';
+    const fs = snapshotFontStyleFor(snap, row.initials, color);
+    return '<div class="cell lblnum row"><div class="lblnum-inner" style="background:'+color+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'600')+'">'+escAttr(row.initials||'')+'</div></div>'
+      + '<div class="cell lblname row"><div class="lblname-inner"><span class="idname">'+escAttr(row.name||'')+'</span></div></div>';
+  }
+  function snapshotRoleLabelHTML(row, band){
+    const bg = band ? 'background:'+band+';' : '';
+    return '<div class="cell lblname row" style="grid-column:span 2;'+bg+'"><div class="lblname-inner" style="left:0">'+escAttr(row.role||'')+'</div></div>';
+  }
+  function snapshotSubrowHeaderHTML(row){
+    return '<div class="subrowhead"><div class="subrowhead-inner">'+escAttr(row.label||'')+'</div></div>';
+  }
+  function renderSnapshotFullGridHTML(snap, officeKey, centerDateIso){
+    const days = snapshotDaysWindow(centerDateIso);
+    let html = snapshotGridHeaderHTML(days, centerDateIso);
     if(officeKey==='pto'){
-      if(!(snap.employees||[]).length) return '<p class="histempty">No roster data in this snapshot.</p>';
-      let html = '<table class="histtable snap-table"><tbody><tr><td colspan="2" class="histsubhead-row">Roster</td></tr>';
-      snap.employees.forEach(e=>{
-        html += '<tr><td class="histlabel">'+escAttr((e.initials||'')+' — '+(e.name||''))+'</td>'+cellHTML(e.cells && e.cells[dateIso])+'</tr>';
+      (snap.employees||[]).forEach(e=>{
+        html += snapshotIdentityLabelHTML(snap, e);
+        days.forEach(d=> html += snapshotDayCellHTML(snap, e.cells && e.cells[d]));
       });
-      return html+'</tbody></table>';
+      return '<div class="sheetscroll snap-sheetscroll"><div id="sheet" style="grid-template-columns:'+snapshotGridTemplateColumns(days)+'">'+html+'</div></div>';
     }
     const reg = snap.regions && snap.regions[officeKey];
-    if(!reg) return '<p class="histempty">This office didn\'t exist yet in this snapshot.</p>';
-    let html = '<table class="histtable snap-table"><tbody><tr><td colspan="2" class="histsubhead-row">Available / overflow</td></tr>';
+    if(!reg) return null;
+    html += '<div class="subhead" style="background:'+(reg.tint||'#eee')+'"><span class="subhead-inner">Available / overflow</span></div>';
     (reg.overflow||[]).forEach(r=>{
-      html += '<tr><td class="histlabel">'+escAttr((r.initials||'')+' — '+(r.name||''))+'</td>'+cellHTML(r.cells && r.cells[dateIso])+'</tr>';
+      html += snapshotIdentityLabelHTML(snap, r);
+      days.forEach(d=> html += snapshotDayCellHTML(snap, r.cells && r.cells[d]));
     });
-    (reg.blocks||[]).forEach(b=>{
-      const status = b.archived ? ' (completed'+(b.archivedDate?' '+b.archivedDate:'')+')' : (b.tabled ? ' (tabled)' : '');
-      html += '<tr><td colspan="2" class="histsubhead-row">'+escAttr(b.title||'Untitled project')+escAttr(status)+'</td></tr>';
+    (reg.blocks||[]).forEach((b,blockIndex)=>{
+      const band = blockBand(blockIndex);
+      const status = b.archived ? ' — completed'+(b.archivedDate?' '+b.archivedDate:'') : (b.tabled ? ' — tabled' : '');
+      html += '<div class="blockhead" style="background:'+(reg.tint||'#eee')+'"><div class="blockhead-inner">'
+        + '<span class="titlewrap">'+escAttr((b.title||'Untitled project')+status)+'</span>'
+        + (b.pm?'<span class="fieldbox"><span class="fieldbox-label">PM:</span> '+escAttr(b.pm)+'</span>':'')
+        + (b.phaseManager?'<span class="fieldbox"><span class="fieldbox-label">Phase:</span> '+escAttr(b.phaseManager)+'</span>':'')
+        + (b.projectNumber?'<span class="fieldbox"><span class="fieldbox-label">Project #:</span> '+escAttr(b.projectNumber)+'</span>':'')
+        + '</div></div>';
       (b.rows||[]).forEach(r=>{
-        if(r.type==='subheader'){
-          html += '<tr><td colspan="2" class="histsubhead-row" style="font-style:italic;">'+escAttr(r.label||'')+'</td></tr>';
-          return;
-        }
-        html += '<tr><td class="histlabel">'+escAttr(r.role||'')+'</td>'+cellHTML(r.cells && r.cells[dateIso])+'</tr>';
+        if(r.type==='subheader'){ html += snapshotSubrowHeaderHTML(r); return; }
+        html += snapshotRoleLabelHTML(r, band);
+        days.forEach(d=> html += snapshotDayCellHTML(snap, r.cells && r.cells[d]));
       });
     });
-    return html+'</tbody></table>';
+    return '<div class="sheetscroll snap-sheetscroll" style="border-top:3px solid '+(reg.color||'#333')+'"><div id="sheet" style="grid-template-columns:'+snapshotGridTemplateColumns(days)+'">'+html+'</div></div>';
   }
   let snapshotLoadToken = 0;
   async function loadAndRenderSnapshot(){
     const area = document.getElementById('snapshotArea');
     if(!area) return;
-    const office = state.historySnapshotOffice || 'pto';
     const dateIso = state.historyDate || TODAY_ISO;
     const myToken = ++snapshotLoadToken;
     area.innerHTML = '<p class="histempty">Loading…</p>';
@@ -1576,7 +1633,50 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       area.innerHTML = '<p class="histempty">No backup found for '+escAttr(dateIso)+'. Backups run once a day, so today\'s (or a future date\'s) may not exist yet — try yesterday or earlier.</p>';
       return;
     }
-    area.innerHTML = renderSnapshotOfficeHTML(snap, office, dateIso);
+    area.innerHTML = '<button class="btn" id="viewSnapshotBtn">View this snapshot — full grid, just like it looked →</button>';
+  }
+  let snapshotModalToken = 0;
+  function officeLabelFor(officeKey){
+    if(officeKey==='pto') return state.ptoLabel||'Roster / PTO';
+    return (state.regions[officeKey] && state.regions[officeKey].title) || officeKey;
+  }
+  async function renderSnapshotModalContent(){
+    const body = document.getElementById('snapshotModalBody');
+    const label = document.getElementById('snapshotModalLabel');
+    if(!body) return;
+    const office = state.historySnapshotOffice || 'pto';
+    const dateIso = state.historyDate || TODAY_ISO;
+    const dt = new Date(dateIso+'T00:00:00');
+    if(label) label.textContent = officeLabelFor(office)+' — '+DOW[dt.getDay()]+' '+(dt.getMonth()+1)+'/'+dt.getDate()+'/'+dt.getFullYear();
+    const myToken = ++snapshotModalToken;
+    body.innerHTML = '<p class="histempty" style="padding:20px;">Loading…</p>';
+    const snap = await fetchBackupSnapshot(dateIso);
+    if(myToken!==snapshotModalToken) return;
+    if(!snap){
+      body.innerHTML = '<p class="histempty" style="padding:20px;">No backup found for '+escAttr(dateIso)+'.</p>';
+      return;
+    }
+    const gridHTML = renderSnapshotFullGridHTML(snap, office, dateIso);
+    body.innerHTML = gridHTML || '<p class="histempty" style="padding:20px;">This office didn\'t exist yet in this snapshot.</p>';
+  }
+  function openSnapshotModal(){
+    const modal = document.getElementById('snapshotModal');
+    if(!modal) return;
+    modal.style.display = 'flex';
+    renderSnapshotModalContent();
+  }
+  function closeSnapshotModal(){
+    const modal = document.getElementById('snapshotModal');
+    if(modal) modal.style.display = 'none';
+  }
+  function snapshotModalNavDay(dir){
+    const cur = state.historyDate || TODAY_ISO;
+    const d = new Date(cur+'T00:00:00');
+    d.setDate(d.getDate()+dir);
+    state.historyDate = isoDate(d);
+    const outerInput = document.getElementById('snapshotDateInput'); // keep the History tab's own picker in sync if it's still on screen behind the modal
+    if(outerInput) outerInput.value = state.historyDate;
+    renderSnapshotModalContent();
   }
 
   function renderTipsTab(container){
@@ -2466,6 +2566,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       loadAndRenderSnapshot();
       return;
     }
+    if(t.matches('#viewSnapshotBtn')){
+      openSnapshotModal();
+      return;
+    }
     if(t.matches('[data-restoreblock]')){
       const b=findBlock(t.dataset.restoreblock);
       if(b){ pushUndo(); b.archived=false; delete b.archivedDate; render(); scheduleSave(); }
@@ -2913,6 +3017,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       hideSharedTooltip();
     }
   });
+  document.getElementById('snapshotModalClose').addEventListener('click', closeSnapshotModal);
+  document.getElementById('snapshotModal').addEventListener('click', e=>{
+    if(e.target.id==='snapshotModal') closeSnapshotModal(); // clicking the dimmed backdrop, not the modal box itself
+  });
+  document.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){
+      const modal = document.getElementById('snapshotModal');
+      if(modal && modal.style.display!=='none') closeSnapshotModal();
+    }
+  });
+  document.getElementById('snapshotModalPrevDay').addEventListener('click', ()=> snapshotModalNavDay(-1));
+  document.getElementById('snapshotModalNextDay').addEventListener('click', ()=> snapshotModalNavDay(1));
   document.getElementById('mobilePrevWindow').addEventListener('click', ()=>{
     mobileWindowStart = Math.max(0, mobileWindowStart - windowShift());
     render(false);
@@ -3066,5 +3182,18 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 })();
 </script>
 <div class="shared-tooltip" id="sharedTooltip"></div>
+<div class="snapshot-modal" id="snapshotModal" style="display:none">
+  <div class="snapshot-modal-inner">
+    <div class="snapshot-modal-header">
+      <span id="snapshotModalLabel" class="snapshot-modal-label"></span>
+      <span class="snapshot-modal-spacer"></span>
+      <button id="snapshotModalPrevDay" title="Go back one day">◀ Previous day</button>
+      <button id="snapshotModalNextDay" title="Go forward one day">Next day ▶</button>
+      <button id="snapshotModalClose" title="Close">✕ Close</button>
+    </div>
+    <div class="snapshot-modal-badge">Read-only — a snapshot from the daily backup, not the live editable grid. Scroll in any direction to look around.</div>
+    <div id="snapshotModalBody" class="snapshot-modal-body"></div>
+  </div>
+</div>
 </body>
 </html>

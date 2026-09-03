@@ -1836,10 +1836,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
 
   function render(preserveScroll){
-    let scrollTop=0, scrollLeft=0;
+    let scrollTop=0, scrollLeft=0, pageScrollY=0;
     if(preserveScroll!==false){
       const prev = document.querySelector('.sheetscroll');
       if(prev){ scrollTop=prev.scrollTop; scrollLeft=prev.scrollLeft; }
+      pageScrollY = window.scrollY;
     }
     const savedFocus = captureFocusState();
     renderTabbar();
@@ -1849,8 +1850,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     else if(state.activeTab==='history') renderHistoryTab(c);
     else if(state.activeTab==='tips') renderTipsTab(c);
     else renderRegionTab(c, state.activeTab);
-    const next = document.querySelector('.sheetscroll');
-    if(next && preserveScroll!==false){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
+    if(preserveScroll!==false){
+      const next = document.querySelector('.sheetscroll');
+      if(next){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
+      window.scrollTo(0, pageScrollY);
+    }
     restoreFocusState(savedFocus);
     updateMobileWindowLabel();
     updateHeaderControls();

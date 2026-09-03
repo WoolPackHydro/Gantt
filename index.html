@@ -22,6 +22,10 @@
   .tabbar{display:flex;flex:1;justify-content:space-between;flex-wrap:wrap;}
   .tabgroup{display:flex;gap:2px;flex-wrap:wrap;align-items:center;}
   .pastdays-inline{font-size:12px;font-family:inherit;color:#5a6472;display:flex;align-items:center;gap:5px;margin-left:14px;padding:6px 4px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .conflict-section{display:flex;align-items:center;gap:2px;margin-left:10px;padding:2px 8px;border:1px solid #d3d8dc;border-radius:5px;background:#f7f9fa;}
+  .conflict-section .pastdays-inline{margin-left:6px;padding:4px 2px;}
+  .conflict-section-label{font-size:11px;font-weight:600;color:#5a6472;white-space:nowrap;}
+  .roster-note{font-size:11px;color:#5a6472;padding:6px 12px;background:#eef4fa;border-bottom:1px solid #c9c9c9;}
   .pastdays-inline input{margin:0;position:relative;top:-1px;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
@@ -501,7 +505,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     for(const rk of Object.keys(state.regions)){
       for(const b of state.regions[rk].blocks){
         const r = b.rows.find(x=>x.id===rowId && x.type!=='subheader');
-        if(r) return {row:r, regionKey:rk};
+        if(r) return {row:r, regionKey:rk, blockId:b.id, blockTitle:b.title};
       }
     }
     return null;
@@ -625,15 +629,42 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(!statusMatch) return null;
     return { rowId, date, who: person.name||person.initials||person.code, code: statusMatch.code, label: statusMatch.label||'' };
   }
+  // Detects the same person/boat assigned to a DIFFERENT project on the same day. Deliberately
+  // scoped to real, matched employees/boats only — status codes like TBD or PTO showing up on
+  // multiple projects the same day is completely normal and not a real-world conflict.
+  function detectDoubleBookConflict(rowId, date){
+    const ctx = findProjectRoleRow(rowId);
+    if(!ctx) return null;
+    const cellObj = ctx.row.cells[date];
+    const text = (cellObj && cellObj.text || '').trim();
+    if(!text) return null;
+    const key = text.toLowerCase();
+    const person = employeeOrBoatByCode(key);
+    if(!person) return null;
+    let otherProject = null;
+    outer: for(const rk of Object.keys(state.regions)){
+      for(const b of state.regions[rk].blocks){
+        if(b.id===ctx.blockId) continue; // only a DIFFERENT project counts — being listed twice within the same project is normal
+        for(const r of b.rows){
+          if(r.type==='subheader') continue;
+          const c = r.cells[date];
+          const t = c ? (c.text||'').trim().toLowerCase() : '';
+          if(t===key){ otherProject = b.title || 'another project'; break outer; }
+        }
+      }
+    }
+    if(!otherProject) return null;
+    return { rowId, date, who: person.name||person.initials||person.code, otherProject };
+  }
   // Session-only (not persisted, not synced) — remembers which exact conflicts have already
   // been alerted on, so re-renders (which happen constantly in a multi-user app, any time a
   // teammate saves anything) never re-trigger the same, still-unresolved warning repeatedly.
   // Cleared for a cell the moment its conflict resolves, so a genuinely new assignment later
-  // can warn again.
+  // can warn again. Keys are prefixed by type so the two warning types can never collide.
   let warnedConflicts = new Set();
-  function conflictKey(c){ return c.rowId+'|'+c.date+'|'+c.who+'|'+c.code; }
-  function clearStaleWarning(rowId, date){
-    const prefix = rowId+'|'+date+'|';
+  function conflictKey(type, rowId, date, detail){ return type+'|'+rowId+'|'+date+'|'+detail; }
+  function clearStaleWarning(type, rowId, date){
+    const prefix = type+'|'+rowId+'|'+date+'|';
     Array.from(warnedConflicts).forEach(k=>{ if(k.startsWith(prefix)) warnedConflicts.delete(k); });
   }
   function showConflictAlert(conflicts){
@@ -652,16 +683,32 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       alert(msg);
     }
   }
+  function showDoubleBookAlert(conflicts){
+    if(conflicts.length===1){
+      const c = conflicts[0];
+      const dt = new Date(c.date+'T00:00:00');
+      const dateLabel = (dt.getMonth()+1)+'/'+dt.getDate();
+      alert('Warning: There is a conflict — '+c.who+' is also assigned to "'+c.otherProject+'" on '+dateLabel+'.');
+    } else {
+      const lines = conflicts.slice(0,10).map(c=>{
+        const dt = new Date(c.date+'T00:00:00');
+        return '• '+c.who+' — also on "'+c.otherProject+'" on '+(dt.getMonth()+1)+'/'+dt.getDate();
+      });
+      let msg = 'Warning: There are '+conflicts.length+' double-booking conflicts:\n'+lines.join('\n');
+      if(conflicts.length>10) msg += '\n...and '+(conflicts.length-10)+' more.';
+      alert(msg);
+    }
+  }
   // Warns when someone gets assigned to a job on a day their overflow entry shows an actual
   // status code (PTO, OOO, etc.) rather than their own initials or blank — a likely sign
   // they're not really available. Fires no matter how the edit was confirmed (Tab, Enter,
   // clicking away), unlike the overflow auto-clear rule above which is Tab-specific. This is
   // informational only — it never blocks or changes the assignment, just flags it.
   function checkOverflowConflict(rowId, date){
-    if(!getConflictWarningsEnabled()) return;
+    if(!getOverflowConflictWarningsEnabled()) return;
     const c = detectOverflowConflict(rowId, date);
-    if(!c){ clearStaleWarning(rowId, date); return; }
-    const key = conflictKey(c);
+    if(!c){ clearStaleWarning('overflow', rowId, date); return; }
+    const key = conflictKey('overflow', rowId, date, c.who+'|'+c.code);
     if(warnedConflicts.has(key)) return;
     warnedConflicts.add(key);
     showConflictAlert([c]);
@@ -670,19 +717,46 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   // every genuinely new conflict still gets flagged, just bundled into one alert instead of
   // one popup per cell.
   function checkOverflowConflictsBatch(cells){
-    if(!getConflictWarningsEnabled()) return;
+    if(!getOverflowConflictWarningsEnabled()) return;
     const found = [];
     const seenThisBatch = new Set();
     cells.forEach(({rowId,date})=>{
       const c = detectOverflowConflict(rowId, date);
-      if(!c){ clearStaleWarning(rowId, date); return; }
-      const key = conflictKey(c);
+      if(!c){ clearStaleWarning('overflow', rowId, date); return; }
+      const key = conflictKey('overflow', rowId, date, c.who+'|'+c.code);
       if(warnedConflicts.has(key) || seenThisBatch.has(key)) return;
       seenThisBatch.add(key);
       warnedConflicts.add(key);
       found.push(c);
     });
     if(found.length) showConflictAlert(found);
+  }
+  // Off by default (see the preference helper above for why). Same structure as the overflow
+  // check: fires on any confirmation method, informational only, deduplicated per exact
+  // conflict, batchable for bulk operations.
+  function checkDoubleBookConflict(rowId, date){
+    if(!getDoubleBookWarningsEnabled()) return;
+    const c = detectDoubleBookConflict(rowId, date);
+    if(!c){ clearStaleWarning('doublebook', rowId, date); return; }
+    const key = conflictKey('doublebook', rowId, date, c.who);
+    if(warnedConflicts.has(key)) return;
+    warnedConflicts.add(key);
+    showDoubleBookAlert([c]);
+  }
+  function checkDoubleBookConflictsBatch(cells){
+    if(!getDoubleBookWarningsEnabled()) return;
+    const found = [];
+    const seenThisBatch = new Set();
+    cells.forEach(({rowId,date})=>{
+      const c = detectDoubleBookConflict(rowId, date);
+      if(!c){ clearStaleWarning('doublebook', rowId, date); return; }
+      const key = conflictKey('doublebook', rowId, date, c.who);
+      if(warnedConflicts.has(key) || seenThisBatch.has(key)) return;
+      seenThisBatch.add(key);
+      warnedConflicts.add(key);
+      found.push(c);
+    });
+    if(found.length) showDoubleBookAlert(found);
   }
 
   // For accounting: logs a project the first time it's given a real name (so a client is
@@ -748,6 +822,51 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         );
         changed = true;
       }
+    });
+    return changed;
+  }
+  // Backfills status codes (PTO, OOO, etc.) between Roster and overflow for data that
+  // predates the sync rule above — someone who typed PTO into their overflow before this
+  // existed never had it pushed to Roster automatically. Runs harmlessly every load: once
+  // both sides already match, there's nothing left to fill in, so it naturally becomes a
+  // no-op. Deliberately only fills in genuinely BLANK cells — if both sides already hold
+  // some value (even if they happen to differ), neither is touched, so nothing pre-existing
+  // ever gets silently overwritten.
+  function reconcileAllStatusMirrors(){
+    let changed = false;
+    const groups = {}; // personKey (lowercased initials) -> [roster employee ref, overflow row refs...]
+    state.employees.forEach(e=>{
+      const key = (e.initials||'').trim().toLowerCase();
+      if(!key) return;
+      (groups[key] = groups[key]||[]).push(e);
+    });
+    Object.keys(state.regions).forEach(rk=>{
+      state.regions[rk].overflow.forEach(r=>{
+        const key = (r.initials||'').trim().toLowerCase();
+        if(!key) return;
+        (groups[key] = groups[key]||[]).push(r);
+      });
+    });
+    Object.keys(groups).forEach(key=>{
+      const refs = groups[key];
+      if(refs.length<2) return; // no pair anywhere for this person — nothing to sync
+      const allDates = new Set();
+      refs.forEach(r=>{ Object.keys(r.cells||{}).forEach(d=>allDates.add(d)); });
+      allDates.forEach(date=>{
+        let statusValue = null;
+        for(const r of refs){
+          const t = (r.cells[date] && r.cells[date].text || '').trim();
+          if(isStatusCodeText(t)){ statusValue = t; break; }
+        }
+        if(!statusValue) return;
+        refs.forEach(r=>{
+          const current = (r.cells[date] && r.cells[date].text || '').trim();
+          if(!current){
+            r.cells[date] = {text: statusValue};
+            changed = true;
+          }
+        });
+      });
     });
     return changed;
   }
@@ -1008,8 +1127,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function setBackupRepo(val){ try{ if(val) localStorage.setItem('woolpert_backup_repo', val); else localStorage.removeItem('woolpert_backup_repo'); }catch(e){} }
   // Personal to this browser, not shared state — someone might find the warnings unhelpful for
   // their own workflow without wanting to turn them off for everyone else on the team.
-  function getConflictWarningsEnabled(){ try{ return localStorage.getItem('woolpert_conflict_warnings')!=='off'; }catch(e){ return true; } }
-  function setConflictWarningsEnabled(on){ try{ localStorage.setItem('woolpert_conflict_warnings', on?'on':'off'); }catch(e){} }
+  function getOverflowConflictWarningsEnabled(){ try{ return localStorage.getItem('woolpert_conflict_warnings')!=='off'; }catch(e){ return true; } }
+  function setOverflowConflictWarningsEnabled(on){ try{ localStorage.setItem('woolpert_conflict_warnings', on?'on':'off'); }catch(e){} }
+  // Off by default — someone showing up on two projects the same day is often deliberate
+  // (processor on two jobs, a double-header survey), so this only warns for people who
+  // specifically want the heads-up.
+  function getDoubleBookWarningsEnabled(){ try{ return localStorage.getItem('woolpert_doublebook_warnings')==='on'; }catch(e){ return false; } }
+  function setDoubleBookWarningsEnabled(on){ try{ localStorage.setItem('woolpert_doublebook_warnings', on?'on':'off'); }catch(e){} }
   let perColWidths = {}; // perColWidths[tabId][dateIso] = widthPx — a personal, per-section, per-column override
   try{ const savedPW = localStorage.getItem('woolpert_percol_widths'); if(savedPW) perColWidths = JSON.parse(savedPW); }catch(e){}
   function savePerColWidths(){ try{ localStorage.setItem('woolpert_percol_widths', JSON.stringify(perColWidths)); }catch(e){} }
@@ -1080,7 +1204,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const leftTabs = tabs.filter(t=>t.id!=='history' && t.id!=='settings');
     const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings');
     const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>'
-      + '<label class="pastdays-inline"><input type="checkbox" id="conflictWarningsToggle"'+(getConflictWarningsEnabled()?' checked':'')+'> Conflict Warnings</label>';
+      + '<span class="conflict-section">'
+        + '<span class="conflict-section-label">Conflict Warnings</span>'
+        + '<label class="pastdays-inline" title="Warns if someone\'s assigned to a job while their overflow shows PTO, OOO, or another status code."><input type="checkbox" id="overflowConflictToggle"'+(getOverflowConflictWarningsEnabled()?' checked':'')+'> Overflow conflicts</label>'
+        + '<label class="pastdays-inline" title="Warns if the same person or boat is on two different projects the same day. Off by default — often intentional, like a processor working two jobs or a double-header survey."><input type="checkbox" id="doubleBookConflictToggle"'+(getDoubleBookWarningsEnabled()?' checked':'')+'> Other-project conflicts</label>'
+      + '</span>';
     bar.innerHTML = '<div class="tabgroup">'+leftTabs.map(tabBtn).join('')+'</div>'
       + '<div class="tabgroup">'+pastDaysHTML+rightTabs.map(tabBtn).join('')+'</div>';
   }
@@ -1095,7 +1223,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       html += identityLabelHTML(emp, {deletable:false});
       days.forEach(d=> html += dayCellHTML(emp,d,monthBand(d)));
     });
-    container.innerHTML = '<div class="sheetscroll"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days)+'">'+html+'</div></div>';
+    const note = '<div class="roster-note">Status codes (PTO, OOO, etc.) entered here automatically match up with this person\'s overflow entry in their office, and vice versa — no need to enter it in both places.</div>';
+    container.innerHTML = note+'<div class="sheetscroll"><div id="sheet" style="grid-template-columns:'+gridTemplateColumns(days)+'">'+html+'</div></div>';
   }
 
   function renderRegionTab(container, regionKey){
@@ -1531,7 +1660,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     fillDrag = null;
     affectedCells.forEach(c=>syncStatusMirror(c.rowId, c.date));
     render(); scheduleSave();
-    if(affectedCells.length) checkOverflowConflictsBatch(affectedCells);
+    if(affectedCells.length){ checkOverflowConflictsBatch(affectedCells); checkDoubleBookConflictsBatch(affectedCells); }
   });
 
   // ---- multi-cell range selection + copy/paste (real OS clipboard — works with Excel too) ----
@@ -1785,7 +1914,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     });
     affectedCells.forEach(c=>syncStatusMirror(c.rowId, c.date));
     render(); scheduleSave();
-    if(affectedCells.length) checkOverflowConflictsBatch(affectedCells);
+    if(affectedCells.length){ checkOverflowConflictsBatch(affectedCells); checkDoubleBookConflictsBatch(affectedCells); }
   });
 
 
@@ -1899,6 +2028,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       hideFillHandle();
       const [rowId,date] = e.target.dataset.cellinput.split('|');
       checkOverflowConflict(rowId, date);
+      checkDoubleBookConflict(rowId, date);
     }
     if(e.target.matches('input,select,textarea') && focusUndoSnapshot!==null){
       if(!suppressUndoCapture){
@@ -2004,8 +2134,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     } else if(t.id==='hidePastToggle'){
       state.hidePast = !t.checked;
       render(); scheduleSave();
-    } else if(t.id==='conflictWarningsToggle'){
-      setConflictWarningsEnabled(t.checked);
+    } else if(t.id==='overflowConflictToggle'){
+      setOverflowConflictWarningsEnabled(t.checked);
+    } else if(t.id==='doubleBookConflictToggle'){
+      setDoubleBookWarningsEnabled(t.checked);
     } else if(t.matches('[data-blockselect]')){
       const id = t.dataset.blockselect;
       if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
@@ -2421,6 +2553,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(savedTab && getTabs().some(t=>t.id===savedTab)) state.activeTab = savedTab;
     }catch(e){}
     if(migrateNoaaStructure()) scheduleSave();
+    if(reconcileAllStatusMirrors()) scheduleSave();
     render();
     startDateWatcher();
   }
@@ -2478,7 +2611,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     scheduleSave();
   });
   document.getElementById('formulaBarInput').addEventListener('blur', ()=>{
-    if(currentFormulaCell) checkOverflowConflict(currentFormulaCell.rowId, currentFormulaCell.date);
+    if(currentFormulaCell){
+      checkOverflowConflict(currentFormulaCell.rowId, currentFormulaCell.date);
+      checkDoubleBookConflict(currentFormulaCell.rowId, currentFormulaCell.date);
+    }
   });
   function applyFormulaFormat(mutator){
     if(!currentFormulaCell) return;

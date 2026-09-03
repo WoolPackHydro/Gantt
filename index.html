@@ -82,13 +82,14 @@
   .blockhead{grid-column:1/-1;min-height:19px;border-top:3px solid #000;}
   .block-addrow-last{border-bottom:3px solid #000;}
   .blockhead-inner{position:sticky;left:0;display:flex;align-items:center;gap:6px;padding:1px 5px;width:fit-content;}
-  .blockhead input.btitle,.blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum,.blockhead input.bmeta{border:none;background:transparent;font-family:inherit;padding:0 2px;height:16px;line-height:16px;}
+  .blockhead input.btitle,.blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum,.blockhead input.bmeta,.blockhead input.bsensors{border:none;background:transparent;font-family:inherit;padding:0 2px;height:16px;line-height:16px;}
   .blockhead input.btitle{font-size:11px;font-weight:600;color:#1c1f22;width:250px;}
   .blockhead input.bpm,.blockhead input.bphase,.blockhead input.bnum{font-size:10.5px;color:#3c4650;}
   .blockhead input.bpm{width:80px;}
   .blockhead input.bphase{width:100px;}
   .blockhead input.bnum{width:70px;}
   .blockhead input.bmeta{font-size:10.5px;color:#5a6472;width:140px;}
+  .blockhead input.bsensors{font-size:10.5px;color:#5a6472;width:140px;}
   .fieldbox{display:flex;align-items:center;gap:3px;border:1px solid rgba(0,0,0,.15);border-radius:3px;padding:0 3px;background:rgba(255,255,255,.45);flex-shrink:0;}
   .fieldbox-label{font-size:9px;font-weight:700;color:#5a6472;white-space:nowrap;letter-spacing:.02em;}
   .titlewrap{display:flex;align-items:center;flex:0 0 auto;}
@@ -1353,6 +1354,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<span class="fieldbox"><span class="fieldbox-label">PM:</span><input class="bpm" data-field="blockpm|'+block.id+'" value="'+escAttr(block.pm||'')+'"'+wStyle('pm')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="pm"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Phase:</span><input class="bphase" data-field="blockphase|'+block.id+'" value="'+escAttr(block.phaseManager||'')+'"'+wStyle('phase')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="phase"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Project #:</span><input class="bnum" data-field="blocknum|'+block.id+'" value="'+escAttr(block.projectNumber||'')+'"'+wStyle('num')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="num"></span></span>'
+        + '<span class="fieldbox"><span class="fieldbox-label">Sensors:</span><input class="bsensors" data-field="blocksensors|'+block.id+'" value="'+escAttr(block.sensors||'')+'"'+wStyle('sensors')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="sensors"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"'+wStyle('meta')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="meta"></span></span>'
         + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer/delete"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
@@ -2390,10 +2392,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       scheduleSave();
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
-      if(field==='blocktitle'||field==='blockmeta'){
+      if(field==='blocktitle'||field==='blockmeta'||field==='blocksensors'){
         const b=findBlock(id);
         if(b){
-          b[field==='blocktitle'?'title':'meta']=t.value;
+          const propMap = {blocktitle:'title', blockmeta:'meta', blocksensors:'sensors'};
+          b[propMap[field]]=t.value;
           if(field==='blocktitle') trackProjectNaming(b);
         }
       }
@@ -2917,7 +2920,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
   let dragRegionKey = null;
   document.addEventListener('dragstart', e=>{
-    if(e.target.matches('.cellinput,.idname-input,.initials-input,.btitle,.bpm,.bphase,.bnum,.bmeta')){
+    if(e.target.matches('.cellinput,.idname-input,.initials-input,.btitle,.bpm,.bphase,.bnum,.bmeta,.bsensors')){
       e.preventDefault();
       return;
     }

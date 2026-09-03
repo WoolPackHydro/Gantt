@@ -204,6 +204,7 @@
   .snap-sheetscroll{height:100%;}
   .snap-celltext{display:block;width:100%;color:inherit;font-weight:inherit;text-align:inherit;font-size:inherit;padding:1px 0;box-sizing:border-box;}
   .datehead.snap-centered{outline:2px solid #2f6fb0;outline-offset:-2px;}
+  .daycell.cut-pending{outline:2px dashed #2f6fb0;outline-offset:-2px;}
   .hist-quickjump{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
   .hist-quickjump button{font-size:11.5px;padding:5px 11px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;border-radius:3px;}
   .hist-quickjump button:hover{background:#eef4f6;}
@@ -2100,6 +2101,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   let projectClipboard = null; // {mode:'copy'|'transfer', blocks:[...], sourceIds:[...]} — deep-copied projects, for pasting into any section
   let selectedProjectIds = new Set(); // project ids checked for a multi-project copy/transfer, independent of which tab is active
   let selectedArchivedIds = new Set(); // separate from the above — completed-project checkboxes in History, for bulk restore/delete
+  let pendingCutCells = null; // {rowIds:[...], dates:[...]} — set by Ctrl+X, cleared (and source cells wiped) by the next paste, or abandoned by a new copy/cut
   function updateSelectionBar(){
     const bar = document.getElementById('selectionBar');
     const text = document.getElementById('selectionBarText');
@@ -2266,15 +2268,40 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(sheetEl) sheetEl.style.gridTemplateColumns = gridTemplateColumns(visibleDays());
   });
 
+  function markCutPendingCells(rowIds, dates, on){
+    rowIds.forEach(rid=>{
+      dates.forEach(d=>{
+        const input = document.querySelector('.cellinput[data-cellinput="'+CSS.escape(rid+'|'+d)+'"]');
+        const wrap = input && input.closest('.daycell');
+        if(wrap) wrap.classList.toggle('cut-pending', on);
+      });
+    });
+  }
   document.addEventListener('copy', e=>{
     if(!appStarted || !currentSelection) return;
     if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
+    if(pendingCutCells){ markCutPendingCells(pendingCutCells.rowIds, pendingCutCells.dates, false); pendingCutCells = null; } // a fresh copy abandons any cut that hadn't been pasted yet
     const rows = currentSelection.rowIds.map(rid=>{
       const found = findRow(rid);
       return currentSelection.dates.map(d => (found && found.row.cells[d] && found.row.cells[d].text) || '');
     });
     e.clipboardData.setData('text/plain', rows.map(r=>r.join('\t')).join('\n'));
     e.preventDefault();
+  });
+  document.addEventListener('cut', e=>{
+    if(!appStarted || !currentSelection) return;
+    if(!(document.activeElement && document.activeElement.matches('.cellinput'))) return;
+    if(pendingCutCells) markCutPendingCells(pendingCutCells.rowIds, pendingCutCells.dates, false); // replace any earlier pending cut, not stack on top of it
+    const rows = currentSelection.rowIds.map(rid=>{
+      const found = findRow(rid);
+      return currentSelection.dates.map(d => (found && found.row.cells[d] && found.row.cells[d].text) || '');
+    });
+    e.clipboardData.setData('text/plain', rows.map(r=>r.join('\t')).join('\n'));
+    e.preventDefault();
+    // Deliberately not cleared yet — only once actually pasted somewhere, matching Excel: cut
+    // marks cells for removal, but nothing is lost if you never end up pasting.
+    pendingCutCells = { rowIds: [...currentSelection.rowIds], dates: [...currentSelection.dates] };
+    markCutPendingCells(pendingCutCells.rowIds, pendingCutCells.dates, true);
   });
   document.addEventListener('paste', e=>{
     if(!appStarted || !currentSelection) return;
@@ -2293,6 +2320,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(anchorRowIdx===-1 || anchorDateIdx===-1) return;
     pushUndo();
     const affectedCells = [];
+    const pastedKeys = new Set();
     grid.forEach((rowVals, ri)=>{
       const targetRowEl = rowEls[anchorRowIdx+ri];
       if(!targetRowEl) return;
@@ -2303,8 +2331,22 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         if(!targetDate) return;
         found.row.cells[targetDate] = {text: val.trim()}; // text only — color always resolves fresh from colorForText
         affectedCells.push({rowId: targetRowEl.dataset.row, date: targetDate});
+        pastedKeys.add(targetRowEl.dataset.row+'|'+targetDate);
       });
     });
+    if(pendingCutCells){
+      pendingCutCells.rowIds.forEach(rid=>{
+        const found = findRow(rid);
+        if(!found) return;
+        pendingCutCells.dates.forEach(d=>{
+          if(pastedKeys.has(rid+'|'+d)) return; // this exact cell also just got pasted into — keep the pasted value, don't blank it back out
+          found.row.cells[d] = {text:''};
+          syncStatusMirror(rid, d);
+        });
+      });
+      markCutPendingCells(pendingCutCells.rowIds, pendingCutCells.dates, false);
+      pendingCutCells = null;
+    }
     affectedCells.forEach(c=>syncStatusMirror(c.rowId, c.date));
     render(); scheduleSave();
     if(affectedCells.length){ checkOverflowConflictsBatch(affectedCells); checkDoubleBookConflictsBatch(affectedCells); }

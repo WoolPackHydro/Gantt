@@ -176,6 +176,8 @@
   .archived-wrap{margin:6px 2px 14px;font-size:11px;color:#5a6472;}
   .archived-wrap summary{cursor:pointer;padding:4px 2px;}
   .archived-row{display:flex;align-items:center;gap:8px;padding:3px 6px;border-top:1px solid #ececec;}
+  .archived-bulkbar{display:flex;align-items:center;gap:12px;padding:6px 6px;flex-wrap:wrap;border-bottom:1px solid #d3d8dc;margin-bottom:2px;}
+  .archived-bulk-count{font-size:11.5px;color:#2f6fb0;font-weight:600;}
   .archived-row span:first-child{flex:1;color:#1c1f22;}
   .archived-date{font-size:10.5px;color:#5a6472;}
 
@@ -1746,6 +1748,33 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     list.sort((a,b)=> (b.block.archivedDate||'').localeCompare(a.block.archivedDate||''));
     return list;
   }
+  function renderCompletedProjectsSectionHTML(){
+    const archivedList = allArchivedBlocksList();
+    let html = '<h3>Completed projects</h3>'
+      + '<p class="setnote">Every project marked complete, across every office — check any number of them to restore or delete in bulk, or use Restore / Delete permanently on just one.</p>';
+    if(!archivedList.length){
+      html += '<p class="histempty">Nothing marked complete yet.</p>';
+      return html;
+    }
+    // Prune selections for anything no longer in the list (e.g. deleted from elsewhere)
+    const liveIds = new Set(archivedList.map(({block:b})=>b.id));
+    Array.from(selectedArchivedIds).forEach(id=>{ if(!liveIds.has(id)) selectedArchivedIds.delete(id); });
+    const selectedCount = selectedArchivedIds.size;
+    html += '<div class="archived-bulkbar">'
+      + '<label class="pastdays-inline"><input type="checkbox" id="archivedSelectAll"'+(selectedCount>0 && selectedCount===archivedList.length?' checked':'')+'> Select all</label>'
+      + (selectedCount ? '<span class="archived-bulk-count">'+selectedCount+' selected</span>' : '')
+      + '<button class="btn" id="archivedRestoreSelected"'+(selectedCount?'':' disabled')+'>Restore selected</button>'
+      + '<button class="btn" id="archivedDeleteSelected"'+(selectedCount?'':' disabled')+'>Delete selected permanently</button>'
+      + '</div>';
+    html += archivedList.map(({block:b, regionTitle})=>
+      '<div class="archived-row"><input type="checkbox" class="archived-select" data-archivedselect="'+b.id+'"'+(selectedArchivedIds.has(b.id)?' checked':'')+'><span>'+escAttr(b.title)+'</span><span class="archived-date">'+escAttr(regionTitle)+' — closed '+(b.archivedDate||'')+'</span><button class="btn" data-restoreblock="'+b.id+'" title="Moves it back to the active project list">Restore</button><button class="btn" data-deleteblock="'+b.id+'">Delete permanently</button></div>'
+    ).join('');
+    return html;
+  }
+  function refreshCompletedProjectsSection(){
+    const el = document.getElementById('completedProjectsSection');
+    if(el) el.innerHTML = renderCompletedProjectsSectionHTML();
+  }
   function renderHistoryTab(container){
     let html = '<div class="history-wrap">';
 
@@ -1766,14 +1795,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '<div id="snapshotArea"><p class="histempty">Loading…</p></div>'
       + '</div>';
 
-    const archivedList = allArchivedBlocksList();
-    html += '<div class="setsection"><h3>Completed projects</h3>'
-      + '<p class="setnote">Every project marked complete, across every office — restore brings one back to its active list, or delete it permanently for good.</p>'
-      + (!archivedList.length ? '<p class="histempty">Nothing marked complete yet.</p>'
-        : archivedList.map(({block:b, regionTitle})=>
-            '<div class="archived-row"><span>'+escAttr(b.title)+'</span><span class="archived-date">'+escAttr(regionTitle)+' — closed '+(b.archivedDate||'')+'</span><button class="btn" data-restoreblock="'+b.id+'" title="Moves it back to the active project list">Restore</button><button class="btn" data-deleteblock="'+b.id+'">Delete permanently</button></div>'
-          ).join(''))
-      + '</div>';
+    html += '<div class="setsection" id="completedProjectsSection">'+renderCompletedProjectsSectionHTML()+'</div>';
 
     html += '<div class="setsection"><h3>Search</h3>'
       + '<p class="setnote">Reaches every project, including completed ones — type any initials or status code to find every time they show up.</p>'
@@ -2072,6 +2094,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   }
   let projectClipboard = null; // {mode:'copy'|'transfer', blocks:[...], sourceIds:[...]} — deep-copied projects, for pasting into any section
   let selectedProjectIds = new Set(); // project ids checked for a multi-project copy/transfer, independent of which tab is active
+  let selectedArchivedIds = new Set(); // separate from the above — completed-project checkboxes in History, for bulk restore/delete
   function updateSelectionBar(){
     const bar = document.getElementById('selectionBar');
     const text = document.getElementById('selectionBarText');
@@ -2510,6 +2533,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
       updateSelectionBar();
       render();
+    } else if(t.matches('[data-archivedselect]')){
+      const id = t.dataset.archivedselect;
+      if(t.checked) selectedArchivedIds.add(id); else selectedArchivedIds.delete(id);
+      refreshCompletedProjectsSection();
+    } else if(t.id==='archivedSelectAll'){
+      const archivedList = allArchivedBlocksList();
+      if(t.checked) archivedList.forEach(({block:b})=> selectedArchivedIds.add(b.id));
+      else selectedArchivedIds.clear();
+      refreshCompletedProjectsSection();
     } else if(t.id==='snapshotOfficeSelect'){
       state.historySnapshotOffice = t.value;
       loadAndRenderSnapshot();
@@ -2568,6 +2600,32 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     if(t.matches('#viewSnapshotBtn')){
       openSnapshotModal();
+      return;
+    }
+    if(t.matches('#archivedRestoreSelected')){
+      const ids = Array.from(selectedArchivedIds);
+      if(!ids.length) return;
+      pushUndo();
+      ids.forEach(id=>{ const b=findBlock(id); if(b){ b.archived=false; delete b.archivedDate; } });
+      selectedArchivedIds.clear();
+      refreshCompletedProjectsSection();
+      scheduleSave();
+      return;
+    }
+    if(t.matches('#archivedDeleteSelected')){
+      const ids = Array.from(selectedArchivedIds);
+      if(!ids.length) return;
+      if(confirm('Permanently delete '+ids.length+' project'+(ids.length===1?'':'s')+'? This cannot be undone — unlike closing a project, this actually erases the data for good.')){
+        pushUndo();
+        ids.forEach(id=>{
+          for(const rk of Object.keys(state.regions)){
+            state.regions[rk].blocks = state.regions[rk].blocks.filter(x=>x.id!==id);
+          }
+        });
+        selectedArchivedIds.clear();
+        refreshCompletedProjectsSection();
+        scheduleSave();
+      }
       return;
     }
     if(t.matches('[data-restoreblock]')){

@@ -1551,10 +1551,11 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   // project blocks, color-coded cells — just read-only and independently scrollable. These
   // are deliberately separate functions from the live editable ones, not a shared refactor
   // of them, so the live grid is never touched or put at any risk.
-  function snapshotDaysWindow(centerDateIso){
-    const dt = new Date(centerDateIso+'T00:00:00');
+  function snapshotDaysWindow(pickedDateIso){
+    const dt = new Date(pickedDateIso+'T00:00:00');
+    dt.setDate(dt.getDate()+1); // the snapshot reflects the END of the picked day, so the forward view starts the next day
     const days = [];
-    for(let i=-10;i<=50;i++){ const d=new Date(dt); d.setDate(dt.getDate()+i); days.push(isoDate(d)); }
+    for(let i=0;i<90;i++){ const d=new Date(dt); d.setDate(dt.getDate()+i); days.push(isoDate(d)); }
     return days;
   }
   function snapshotGridTemplateColumns(days){
@@ -1562,17 +1563,17 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const cols = days.map(()=>w+'px').join(' ');
     return (isMobileViewport() ? '28px 85px ' : '34px 150px ')+cols;
   }
-  function snapshotDateHeadHTML(d, centerDateIso){
+  function snapshotDateHeadHTML(d, isFirst){
     const dt = new Date(d+'T00:00:00');
-    const cls = (d===TODAY_ISO?' today':'') + (d===centerDateIso?' snap-centered':'');
+    const cls = (d===TODAY_ISO?' today':'') + (isFirst?' snap-centered':'');
     const style = d===TODAY_ISO ? '' : ' style="background:'+monthBand(d)+'"';
     return '<div class="cell datehead'+cls+'"'+style+'><span class="dow">'+DOW[dt.getDay()]+'</span><span class="num">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</span></div>';
   }
-  function snapshotGridHeaderHTML(days, centerDateIso){
+  function snapshotGridHeaderHTML(days){
     let html = '<div class="cell monthcorner" style="grid-column:span 2;"></div>';
     monthGroups(days).forEach(g=>{ html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+g.label.toUpperCase()+'</div>'; });
     html += '<div class="cell corner c1"></div><div class="cell corner c2">Date</div>';
-    days.forEach(d=> html += snapshotDateHeadHTML(d, centerDateIso));
+    days.forEach((d,i)=> html += snapshotDateHeadHTML(d, i===0));
     return html;
   }
   function snapshotDayCellHTML(snap, cellObj){
@@ -1596,9 +1597,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function snapshotSubrowHeaderHTML(row){
     return '<div class="subrowhead"><div class="subrowhead-inner">'+escAttr(row.label||'')+'</div></div>';
   }
-  function renderSnapshotFullGridHTML(snap, officeKey, centerDateIso){
-    const days = snapshotDaysWindow(centerDateIso);
-    let html = snapshotGridHeaderHTML(days, centerDateIso);
+  function renderSnapshotFullGridHTML(snap, officeKey, pickedDateIso){
+    const days = snapshotDaysWindow(pickedDateIso);
+    let html = snapshotGridHeaderHTML(days);
     if(officeKey==='pto'){
       (snap.employees||[]).forEach(e=>{
         html += snapshotIdentityLabelHTML(snap, e);

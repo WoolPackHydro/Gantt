@@ -209,7 +209,10 @@
   .formula-bar{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #c9c9c9;background:#fff;overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .formula-bar-daterange{font-size:11px;color:#5a6472;white-space:nowrap;flex-shrink:0;padding:0 2px;}
   .formula-bar-label{font-size:11px;color:#5a6472;flex-shrink:0;min-width:70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;}
-  .formula-bar input[type="text"]{flex:1;min-width:100px;font-size:12.5px;padding:4px 7px;border:1px solid #c7ccd1;border-radius:3px;}
+  .formula-bar input[type="text"]{width:220px;flex-shrink:0;font-size:12.5px;padding:4px 7px;border:1px solid #c7ccd1;border-radius:3px;}
+  .formula-bar-spacer{flex:1;min-width:8px;}
+  .fbtn-nav{font-size:12px;padding:5px 12px;border:1px solid #9aa0a6;font-weight:500;}
+  .fbtn-nav:hover:not(:disabled){background:#eef4f6;}
   .formula-bar input[type="text"]:disabled{background:#f2f4f5;color:#9aa0a6;}
   .fbtn{font-size:11px;padding:4px 8px;border:1px solid #c7ccd1;border-radius:3px;background:#fff;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;}
   .fbtn:hover:not(:disabled){background:#eef4fa;}
@@ -231,6 +234,7 @@
        around afterward, and (combined with the resize watcher below) the mid-edit
        interruption. Forcing every input to 16px+ stops the zoom from triggering at all. */
     input, textarea, select { font-size:16px !important; }
+    .formula-bar input[type="text"]{width:140px;}
     /* The tab row was wrapping combined with space-between, which on a narrow screen
        pushed tabs off-screen instead of showing them. A single scrollable line is the
        standard, reliable fix — same pattern most mobile apps use for a tab strip. */
@@ -239,6 +243,7 @@
     .tabgroup:last-child{margin-left:10px;}
     .tab{padding:9px 12px;font-size:13px;white-space:nowrap;}
     .pastdays-inline{padding:9px 6px;font-size:12.5px;}
+    header.intro{flex-wrap:wrap;row-gap:4px;}
     header.intro h1{font-size:12px;}
     .iconbtn{padding:5px 11px;font-size:16px;}
     .movebtn{padding:5px 7px!important;font-size:12px!important;}
@@ -269,6 +274,12 @@
     <button id="undoBtn" class="iconbtn" title="Undo (Ctrl+Z)" disabled>↶</button>
     <button id="redoBtn" class="iconbtn" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
     <div class="spacer"></div>
+    <label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"> Show past days</label>
+    <span class="conflict-section">
+      <span class="conflict-section-label">Conflict Warnings<span class="info-icon" data-tip="Each of these can be turned on or off independently, just for your own browser — it won't change what anyone else on the team sees. Hover a checkbox for what it specifically checks.">i</span></span>
+      <label class="pastdays-inline" title="Warns if someone's assigned to a job while their overflow shows PTO, OOO, or another status code."><input type="checkbox" id="overflowConflictToggle"> Overflow conflicts</label>
+      <label class="pastdays-inline" title="Warns if the same person or boat is on two different projects the same day. Off by default — often intentional, like a processor working two jobs or a double-header survey."><input type="checkbox" id="doubleBookConflictToggle"> Other-project conflicts</label>
+    </span>
     <span class="sync" id="syncStatus">Synced</span>
     <button class="signout-link" id="signOutBtn">Sign out</button>
   </header>
@@ -276,9 +287,6 @@
     <div class="tabbar" id="tabbar"></div>
   </div>
   <div class="formula-bar" id="formulaBar">
-    <button id="mobilePrevWindow" class="fbtn">◀</button>
-    <span id="mobileWindowLabel" class="formula-bar-daterange"></span>
-    <button id="mobileNextWindow" class="fbtn">▶</button>
     <span class="formula-bar-label" id="formulaBarLabel">No cell selected</span>
     <input type="text" id="formulaBarInput" placeholder="Click a cell to see and edit its full text here" disabled>
     <button class="fbtn" id="formulaBoldBtn" title="Bold" disabled><b>B</b></button>
@@ -298,6 +306,10 @@
     <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Text</span><input type="color" id="formulaTextColorInput" disabled><button class="fbtn-colorreset" id="formulaTextColorResetBtn" title="Reset to automatic text color" disabled>✕</button></span>
     <span class="fbtn-colorwrap"><span class="fbtn-colorlabel">Fill</span><input type="color" id="formulaFillColorInput" disabled><button class="fbtn-colorreset" id="formulaFillColorResetBtn" title="Reset to automatic fill color" disabled>✕</button></span>
     <span class="info-icon" data-tip="Formatting here applies only to this one cell — even one showing a real person, boat, or status code. Clearing all the text in a cell resets everything back to normal automatically.">i</span>
+    <span class="formula-bar-spacer"></span>
+    <button id="mobilePrevWindow" class="fbtn fbtn-nav">◀ Earlier</button>
+    <span id="mobileWindowLabel" class="formula-bar-daterange"></span>
+    <button id="mobileNextWindow" class="fbtn fbtn-nav">Later ▶</button>
   </div>
   <div id="selectionBar" class="selection-bar" style="display:none">
     <span id="selectionBarText"></span>
@@ -1261,14 +1273,8 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const tabs = getTabs();
     const leftTabs = tabs.filter(t=>t.id!=='history' && t.id!=='settings' && t.id!=='tips');
     const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings' || t.id==='tips');
-    const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>'
-      + '<span class="conflict-section">'
-        + '<span class="conflict-section-label">Conflict Warnings<span class="info-icon" data-tip="Each of these can be turned on or off independently, just for your own browser — it won\'t change what anyone else on the team sees. Hover a checkbox for what it specifically checks.">i</span></span>'
-        + '<label class="pastdays-inline" title="Warns if someone\'s assigned to a job while their overflow shows PTO, OOO, or another status code."><input type="checkbox" id="overflowConflictToggle"'+(getOverflowConflictWarningsEnabled()?' checked':'')+'> Overflow conflicts</label>'
-        + '<label class="pastdays-inline" title="Warns if the same person or boat is on two different projects the same day. Off by default — often intentional, like a processor working two jobs or a double-header survey."><input type="checkbox" id="doubleBookConflictToggle"'+(getDoubleBookWarningsEnabled()?' checked':'')+'> Other-project conflicts</label>'
-      + '</span>';
     bar.innerHTML = '<div class="tabgroup">'+leftTabs.map(tabBtn).join('')+'</div>'
-      + '<div class="tabgroup">'+pastDaysHTML+rightTabs.map(tabBtn).join('')+'</div>';
+      + '<div class="tabgroup">'+rightTabs.map(tabBtn).join('')+'</div>';
   }
 
   function sortedByFirstName(list){
@@ -1616,6 +1622,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(next && preserveScroll!==false){ next.scrollTop=scrollTop; next.scrollLeft=scrollLeft; }
     restoreFocusState(savedFocus);
     updateMobileWindowLabel();
+    updateHeaderControls();
+  }
+  function updateHeaderControls(){
+    const hidePastEl = document.getElementById('hidePastToggle');
+    if(hidePastEl) hidePastEl.checked = !state.hidePast;
+    const overflowEl = document.getElementById('overflowConflictToggle');
+    if(overflowEl) overflowEl.checked = getOverflowConflictWarningsEnabled();
+    const doubleBookEl = document.getElementById('doubleBookConflictToggle');
+    if(doubleBookEl) doubleBookEl.checked = getDoubleBookWarningsEnabled();
   }
   function updateMobileWindowLabel(){
     const label = document.getElementById('mobileWindowLabel');

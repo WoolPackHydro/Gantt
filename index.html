@@ -132,6 +132,7 @@
   .tip-mock{display:inline-flex;align-items:center;gap:8px;background:#f7f9fa;border:1px solid #d3d8dc;border-radius:6px;padding:10px 14px;margin-top:2px;}
   .tip-mock-cell{position:relative;width:46px;height:26px;background:#f4c2e0;border:1px solid #d3d3d3;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;color:#1c1f22;}
   .tip-mock-fillsquare{position:absolute;right:-4px;bottom:-4px;width:8px;height:8px;background:#2f6fb0;border:1px solid #fff;border-radius:1px;}
+  .tip-mock-comment-triangle{position:absolute;top:0;right:0;width:10px;height:10px;background:#c0272d;clip-path:polygon(100% 0,0 0,100% 100%);}
   .tip-mock-formulabar{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #c7ccd1;border-radius:4px;padding:5px 8px;font-size:10.5px;}
   .tip-mock-label{color:#5a6472;white-space:nowrap;}
   .tip-mock-input{background:#f2f4f5;border-radius:3px;padding:3px 7px;color:#1c1f22;min-width:140px;}
@@ -1506,28 +1507,28 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '<p class="setnote">A few things worth knowing that aren\'t always obvious at first glance — a couple minutes here can save a lot of time later.</p></div>';
 
     html += '<div class="tip-step"><h4>1. Click any cell to see and edit its full text</h4>'
-      + '<p>The formula bar at the top of the screen (under the Earlier/Later buttons) always shows the full contents of whatever cell you\'ve clicked — handy the moment a note or name is too long to read in the narrow cell itself. Type there or in the cell directly; they stay in sync either way.</p>'
+      + '<p>The formula bar at the top of the screen always shows the full contents of whatever cell you\'ve clicked, and lets you type there instead of squeezing it into the narrow cell itself — handy the moment a note or name doesn\'t fit. Type there or in the cell directly; they stay in sync either way. (But really, any long message like this is better off as a comment — see the next tip.)</p>'
       + '<div class="tip-mock"><div class="tip-mock-formulabar"><span class="tip-mock-label">WT — 9/2</span><span class="tip-mock-input">Bring extra survey gear tomorrow</span><span class="tip-mock-btn"><b>B</b></span><span class="tip-mock-btn">Left</span></div></div>'
       + '</div>';
 
-    html += '<div class="tip-step"><h4>2. Drag the little blue square to fill or repeat a pattern</h4>'
+    html += '<div class="tip-step"><h4>2. Right-click any cell to leave a comment on it</h4>'
+      + '<p>A small red triangle marks any cell with a comment — hover it to read what\'s there. This is the right spot for a detail that doesn\'t belong in the cell\'s own text, like "put boat on the trailer at end of day," "9am low tide," or "1 hour appt at 2pm."</p>'
+      + '<div class="tip-mock"><div class="tip-mock-cell" style="background:#f7fafb;position:relative;">AS<span class="tip-mock-comment-triangle"></span></div></div>'
+      + '</div>';
+
+    html += '<div class="tip-step"><h4>3. Drag the little blue square to fill or repeat a pattern</h4>'
       + '<p>Click a cell and a small blue square appears at its corner — drag it down or across to copy that value into other cells. Select a whole week first (including blank weekend cells) and drag further, and it repeats that exact pattern instead of just stamping one value everywhere.</p>'
       + '<div class="tip-mock"><div class="tip-mock-cell">AS<span class="tip-mock-fillsquare"></span></div></div>'
       + '</div>';
 
-    html += '<div class="tip-step"><h4>3. Assign someone with Tab, and they\'re cleared from overflow automatically</h4>'
+    html += '<div class="tip-step"><h4>4. Assign someone with Tab, and they\'re cleared from overflow automatically</h4>'
       + '<p>Type someone\'s initials into a job and press <b>Tab</b> — if they were sitting in that office\'s "available" list for that day, they\'re removed automatically, since they\'re no longer free. Take them off the job later and they pop right back into overflow on their own. Press <b>Enter</b> instead (or click away) and they stay listed in both places — so the choice is always yours.</p>'
       + '<div class="tip-mock"><div class="tip-mock-row"><div class="tip-mock-cell">DF</div><span class="tip-mock-tag">overflow</span><span class="tip-mock-arrow">→ Tab →</span><div class="tip-mock-cell">DF</div><span class="tip-mock-tag">project</span></div></div>'
       + '</div>';
 
-    html += '<div class="tip-step"><h4>4. Handle a whole project at once</h4>'
+    html += '<div class="tip-step"><h4>5. Handle a whole project at once</h4>'
       + '<p>Every project header has buttons for moving it up or down the list, copying or transferring it to a different office, and marking it complete. Check the box on several projects to do any of that in bulk. "Tabled for later" hides a project without marking it done — bring it back anytime from where you tabled it.</p>'
       + '<div class="tip-mock"><div class="tip-mock-row"><span class="tip-mock-btn">☐</span><span class="tip-mock-btn">↑</span><span class="tip-mock-btn">↓</span><span class="tip-mock-btn">⧉</span><span class="tip-mock-btn">−</span><span class="tip-mock-btn">✕</span></div></div>'
-      + '</div>';
-
-    html += '<div class="tip-step"><h4>5. Right-click any cell to leave a comment on it</h4>'
-      + '<p>A small red triangle marks any cell with a comment — hover it to read what\'s there. Useful for a detail that does not belong in the cell itself, like a reminder or a heads-up for whoever is scheduled next.</p>'
-      + '<div class="tip-mock"><div class="tip-mock-cell" style="background:#f7fafb;">AS</div></div>'
       + '</div>';
 
     html += '<div class="tip-step"><h4>6. Copy and paste directly with Excel</h4>'

@@ -26,6 +26,11 @@
   .conflict-section .pastdays-inline{margin-left:6px;padding:4px 2px;}
   .conflict-section-label{font-size:11px;font-weight:600;color:#5a6472;white-space:nowrap;}
   .roster-note{font-size:11px;color:#5a6472;padding:6px 12px;background:#eef4fa;border-bottom:1px solid #c9c9c9;}
+  .info-icon{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid #9aa0a6;color:#9aa0a6;font-size:9.5px;font-style:normal;font-weight:700;cursor:help;position:relative;margin-left:4px;flex-shrink:0;user-select:none;line-height:1;}
+  .info-icon:hover, .info-icon.tip-active{border-color:#2f6fb0;color:#2f6fb0;}
+  .info-icon::after{content:attr(data-tip);position:absolute;bottom:135%;left:50%;transform:translateX(-50%);background:#1c1f22;color:#fff;padding:7px 10px;border-radius:5px;font-size:11px;font-weight:400;font-style:normal;line-height:1.4;white-space:normal;width:max-content;max-width:230px;opacity:0;visibility:hidden;transition:opacity 0.12s;z-index:200;pointer-events:none;text-align:left;}
+  .info-icon.tip-below::after{bottom:auto;top:135%;}
+  .info-icon:hover::after, .info-icon.tip-active::after{opacity:1;visibility:visible;}
   .pastdays-inline input{margin:0;position:relative;top:-1px;}
   .tab{font-size:12px;padding:6px 12px;border:none;background:none;cursor:pointer;}
   .tab:hover{background:#f2f2f2;}
@@ -259,6 +264,7 @@
     <button class="fbtn" id="formulaAlignLeftBtn" title="Align left" disabled>Left</button>
     <button class="fbtn" id="formulaAlignCenterBtn" title="Align center" disabled>Center</button>
     <button class="fbtn" id="formulaAlignRightBtn" title="Align right" disabled>Right</button>
+    <span class="info-icon tip-below" data-tip="Bold and alignment only apply to free-text notes — a cell matching a real person, boat, or status code always uses that entity's own consistent styling instead.">i</span>
   </div>
   <div id="selectionBar" class="selection-bar" style="display:none">
     <span id="selectionBarText"></span>
@@ -1163,7 +1169,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const label = widthPx >= 82 ? g.label.toUpperCase() : '';
       html += '<div class="cell monthhead" style="grid-column:span '+g.span+';">'+label+'</div>';
     });
-    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
+    html += '<div class="cell corner c1"></div><div class="cell corner c2">Date<span class="info-icon" data-tip="Tip: the small blue square at a selected cell\'s corner lets you drag to fill a value or repeat a pattern across cells. Right-click any cell to leave a comment on it. You can copy/paste directly with Excel. Tab or Enter moves down a row after typing; arrow keys move any direction.">i</span><span class="namecol-rsz" title="Drag to widen the name column"></span></div>';
     days.forEach(d=> html += dateHeadHTML(d));
     return html;
   }
@@ -1209,7 +1215,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const rightTabs = tabs.filter(t=>t.id==='history' || t.id==='settings');
     const pastDaysHTML = '<label class="pastdays-inline"><input type="checkbox" id="hidePastToggle"'+(!state.hidePast?' checked':'')+'> Show past days</label>'
       + '<span class="conflict-section">'
-        + '<span class="conflict-section-label">Conflict Warnings</span>'
+        + '<span class="conflict-section-label">Conflict Warnings<span class="info-icon tip-below" data-tip="Each of these can be turned on or off independently, just for your own browser — it won\'t change what anyone else on the team sees. Hover a checkbox for what it specifically checks.">i</span></span>'
         + '<label class="pastdays-inline" title="Warns if someone\'s assigned to a job while their overflow shows PTO, OOO, or another status code."><input type="checkbox" id="overflowConflictToggle"'+(getOverflowConflictWarningsEnabled()?' checked':'')+'> Overflow conflicts</label>'
         + '<label class="pastdays-inline" title="Warns if the same person or boat is on two different projects the same day. Off by default — often intentional, like a processor working two jobs or a double-header survey."><input type="checkbox" id="doubleBookConflictToggle"'+(getDoubleBookWarningsEnabled()?' checked':'')+'> Other-project conflicts</label>'
       + '</span>';
@@ -1238,7 +1244,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const archivedBlocks = reg.blocks.filter(b=>b.archived);
     const tabledBlocks = reg.blocks.filter(b=>!b.archived && b.tabled);
     let html = gridHeaderHTML(days);
-    html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow</span></div>';
+    html += '<div class="subhead" style="background:'+reg.tint+'"><span class="subhead-inner">Available / overflow<span class="info-icon" data-tip="Tip: drag the \u283F handle to reorder this list by hand. Typing someone\'s initials into a job below and pressing Tab automatically removes them from here; press Enter instead to leave them listed in both places. Status codes (PTO, OOO, etc.) entered here automatically match up with the company-wide Roster too.">i</span></span></div>';
     reg.overflow.forEach(row=>{
       html += identityLabelHTML(row, {deletable:true, editable:true, reorderable:true, regionKey:regionKey});
       days.forEach(d=> html += dayCellHTML(row,d,monthBand(d)));
@@ -1279,7 +1285,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       const label = n===1 ? '"'+escAttr(projectClipboard.blocks[0].title)+'"' : n+' projects';
       pasteBtn = '<button class="pasteprojectbtn" data-pasteblock-region="'+regionKey+'">+ '+verb+' '+label+' here</button>';
     }
-    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'</div></div>';
+    html += '<div class="addblock"><div class="addblock-inner"><button data-addblock-region="'+regionKey+'">+ Add project at the end</button>'+pasteBtn+'<span class="info-icon" data-tip="Tip: check the box on multiple projects to copy, transfer, or mark them complete in bulk. Copy keeps the original in place; Transfer removes it once pasted elsewhere. \'Tabled for later\' hides a project without marking it done. Add a sub-group heading inside a project to split a crew by boat or shift.">i</span></div></div>';
     let archivedHTML = '';
     if(archivedBlocks.length){
       archivedHTML = '<details class="archived-wrap"><summary>Completed projects ('+archivedBlocks.length+') — data preserved, viewable in History</summary>'
@@ -1445,6 +1451,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     let toolbar = '<div class="histtoolbar">'
       + '<label>Week of <input type="date" id="historyDateInput" value="'+refDate+'"></label>'
       + '<input type="text" id="historySearchInput" placeholder="or search everywhere by initials/code..." value="'+escAttr(state.historySearch||'')+'">'
+      + '<span class="info-icon" data-tip="Search reaches every project, including ones already marked complete — type any initials or status code to find every time they show up. Or pick a week to see everything scheduled then, completed projects included, even though they no longer show on the active tabs.">i</span>'
       + '</div>';
     let body = '';
     if(state.historySearch && state.historySearch.trim()){
@@ -2590,6 +2597,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   });
   document.getElementById('undoBtn').addEventListener('click', doUndo);
   document.getElementById('redoBtn').addEventListener('click', doRedo);
+  // Info icons rely on CSS :hover on desktop; touch devices have no hover state, so tapping
+  // toggles the tooltip instead. Tapping elsewhere (or another icon) closes whichever was open.
+  document.addEventListener('click', e=>{
+    const icon = e.target.closest && e.target.closest('.info-icon');
+    document.querySelectorAll('.info-icon.tip-active').forEach(el=>{ if(el!==icon) el.classList.remove('tip-active'); });
+    if(icon){ e.preventDefault(); e.stopPropagation(); icon.classList.toggle('tip-active'); }
+  });
   document.getElementById('mobilePrevWindow').addEventListener('click', ()=>{
     mobileWindowStart = Math.max(0, mobileWindowStart - windowShift());
     render(false);

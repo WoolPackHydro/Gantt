@@ -190,6 +190,10 @@
   .histtable th{background:#eef0f2;font-weight:600;color:#5a6472;}
   .histtable td.histlabel,.histtable td:first-child{text-align:left;font-weight:500;white-space:nowrap;}
   .histempty{font-size:11.5px;color:#5a6472;}
+  .snap-table{width:100%;max-width:520px;}
+  .snap-table td.histlabel{width:60%;}
+  .snap-empty{color:#c3c8cc;}
+  .histsubhead-row{font-size:9.5px;font-weight:700;font-style:italic;color:#5a6472;background:rgba(0,0,0,.04);padding:4px 6px!important;text-transform:uppercase;letter-spacing:.03em;text-align:left!important;}
   .histnote{font-size:9.5px;color:#5a6472;border-bottom:1px dotted #5a6472;cursor:help;}
   .hist-quickjump{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
   .hist-quickjump button{font-size:11.5px;padding:5px 11px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;border-radius:3px;}
@@ -1463,47 +1467,118 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       + '</div>';
   }
 
-  function weekRangeFor(dateIso){
-    const dt = new Date(dateIso+'T00:00:00');
-    const dow = dt.getDay();
-    const start = new Date(dt); start.setDate(dt.getDate()-dow);
-    const days = [];
-    for(let i=0;i<7;i++){ const d=new Date(start); d.setDate(start.getDate()+i); days.push(isoDate(d)); }
-    return days;
+  // --- Point-in-time History: sources from the same once-a-day backups used for disaster
+  // recovery, so viewing a past day means a real snapshot of that office as it looked when
+  // that backup ran — not today's live data filtered by date, which was the old approach.
+  function snapshotMasterItemFor(snap, key){
+    let hit = (snap.employees||[]).find(e=>e.initials && e.initials.toLowerCase()===key);
+    if(hit) return hit;
+    hit = (snap.boats||[]).find(b=>b.code && b.code.toLowerCase()===key);
+    if(hit) return hit;
+    hit = (snap.statusCodes||[]).find(s=>s.code && s.code.toLowerCase()===key);
+    if(hit) return hit;
+    return null;
   }
-  function rowHasDataInRange(row, days){
-    if(row.type==='subheader') return false;
-    return days.some(d=> row.cells[d] && row.cells[d].text && row.cells[d].text.trim()!=='');
+  function snapshotColorForText(snap, text){
+    if(!text) return null;
+    const key = text.trim().toLowerCase();
+    if(!key) return null;
+    const item = snapshotMasterItemFor(snap, key);
+    if(item) return item.color;
+    return hashColor(key);
   }
-  function historyTableHTML(sectionLabel, rows, days, getLabel){
-    const hasAnyData = rows.some(r=>rowHasDataInRange(r,days));
-    if(!hasAnyData) return '';
-    let html = '<h4 class="histsec">'+escAttr(sectionLabel)+'</h4><table class="histtable"><thead><tr><th></th>';
-    days.forEach(d=>{ const dt=new Date(d+'T00:00:00'); html+='<th>'+DOW[dt.getDay()]+'<br>'+(dt.getMonth()+1)+'/'+dt.getDate()+'</th>'; });
-    html += '</tr></thead><tbody>';
-    let pendingSubhead = null;
-    rows.forEach(r=>{
-      if(r.type==='subheader'){ pendingSubhead = r.label||''; return; }
-      if(!rowHasDataInRange(r,days)) return;
-      if(pendingSubhead!==null){
-        html += '<tr class="histsubhead"><td colspan="'+(days.length+1)+'">'+escAttr(pendingSubhead)+'</td></tr>';
-        pendingSubhead = null;
-      }
-      html += '<tr><td class="histlabel">'+escAttr(getLabel(r))+'</td>';
-      days.forEach(d=>{
-        const c = r.cells[d];
-        const txt = c ? (c.text||'') : '';
-        const bg = c ? (c.color||colorForText(c.text)) : null;
-        const fs = bg ? fontStyleFor(c.text, bg) : null;
-        const style = bg ? ' style="background:'+bg+';color:'+fs.color+';font-weight:'+(fs.bold?'700':'500')+';"' : '';
-        const title = c && c.comment ? ' title="'+escAttr(c.comment)+'"' : '';
-        html += '<td'+style+title+'>'+escAttr(txt)+'</td>';
+  function snapshotFontStyleFor(snap, text, bgColor){
+    const key = text ? text.trim().toLowerCase() : '';
+    const item = key ? snapshotMasterItemFor(snap, key) : null;
+    const color = (item && item.fontColor) ? item.fontColor : textColorFor(bgColor);
+    const bold = !!(item && item.bold);
+    return {color, bold};
+  }
+  function snapshotCellStyle(snap, cellObj){
+    if(!cellObj) return '';
+    const text = cellObj.text || '';
+    const align = cellObj.align || 'center';
+    const bg = cellObj.color || snapshotColorForText(snap, text);
+    let style = 'text-align:'+align+';';
+    if(cellObj.fontSize) style += 'font-size:'+cellObj.fontSize+'px;';
+    if(bg){
+      const fs = snapshotFontStyleFor(snap, text, bg);
+      const bold = cellObj.bold!==undefined ? cellObj.bold : fs.bold;
+      const textColor = cellObj.textColor || fs.color;
+      style += 'background:'+bg+';color:'+textColor+';font-weight:'+(bold?'700':'500')+';';
+    } else {
+      if(cellObj.bold) style += 'font-weight:700;';
+      if(cellObj.textColor) style += 'color:'+cellObj.textColor+';';
+    }
+    return style;
+  }
+  let snapshotCache = {}; // dateIso -> parsed backup JSON, or null if confirmed missing — session-only, avoids re-fetching a day already visited
+  async function fetchBackupSnapshot(dateIso){
+    if(Object.prototype.hasOwnProperty.call(snapshotCache, dateIso)) return snapshotCache[dateIso];
+    const repo = (getBackupRepo() || 'WoolPackHydro/Gantt').trim();
+    try{
+      const res = await fetch('https://raw.githubusercontent.com/'+repo+'/main/backups/'+dateIso+'.json');
+      if(!res.ok){ snapshotCache[dateIso] = null; return null; }
+      const data = await res.json();
+      snapshotCache[dateIso] = data;
+      return data;
+    }catch(e){
+      snapshotCache[dateIso] = null;
+      return null;
+    }
+  }
+  function renderSnapshotOfficeHTML(snap, officeKey, dateIso){
+    function cellHTML(cellObj){
+      const text = cellObj ? (cellObj.text||'') : '';
+      if(!text) return '<td class="snap-empty">—</td>';
+      const style = snapshotCellStyle(snap, cellObj);
+      const comment = cellObj.comment ? ' title="'+escAttr(cellObj.comment)+'"' : '';
+      return '<td style="'+style+'"'+comment+'>'+escAttr(text)+'</td>';
+    }
+    if(officeKey==='pto'){
+      if(!(snap.employees||[]).length) return '<p class="histempty">No roster data in this snapshot.</p>';
+      let html = '<table class="histtable snap-table"><tbody><tr><td colspan="2" class="histsubhead-row">Roster</td></tr>';
+      snap.employees.forEach(e=>{
+        html += '<tr><td class="histlabel">'+escAttr((e.initials||'')+' — '+(e.name||''))+'</td>'+cellHTML(e.cells && e.cells[dateIso])+'</tr>';
       });
-      html += '</tr>';
+      return html+'</tbody></table>';
+    }
+    const reg = snap.regions && snap.regions[officeKey];
+    if(!reg) return '<p class="histempty">This office didn\'t exist yet in this snapshot.</p>';
+    let html = '<table class="histtable snap-table"><tbody><tr><td colspan="2" class="histsubhead-row">Available / overflow</td></tr>';
+    (reg.overflow||[]).forEach(r=>{
+      html += '<tr><td class="histlabel">'+escAttr((r.initials||'')+' — '+(r.name||''))+'</td>'+cellHTML(r.cells && r.cells[dateIso])+'</tr>';
     });
-    html += '</tbody></table>';
-    return html;
+    (reg.blocks||[]).forEach(b=>{
+      const status = b.archived ? ' (completed'+(b.archivedDate?' '+b.archivedDate:'')+')' : (b.tabled ? ' (tabled)' : '');
+      html += '<tr><td colspan="2" class="histsubhead-row">'+escAttr(b.title||'Untitled project')+escAttr(status)+'</td></tr>';
+      (b.rows||[]).forEach(r=>{
+        if(r.type==='subheader'){
+          html += '<tr><td colspan="2" class="histsubhead-row" style="font-style:italic;">'+escAttr(r.label||'')+'</td></tr>';
+          return;
+        }
+        html += '<tr><td class="histlabel">'+escAttr(r.role||'')+'</td>'+cellHTML(r.cells && r.cells[dateIso])+'</tr>';
+      });
+    });
+    return html+'</tbody></table>';
   }
+  let snapshotLoadToken = 0;
+  async function loadAndRenderSnapshot(){
+    const area = document.getElementById('snapshotArea');
+    if(!area) return;
+    const office = state.historySnapshotOffice || 'pto';
+    const dateIso = state.historyDate || TODAY_ISO;
+    const myToken = ++snapshotLoadToken;
+    area.innerHTML = '<p class="histempty">Loading…</p>';
+    const snap = await fetchBackupSnapshot(dateIso);
+    if(myToken!==snapshotLoadToken) return; // a newer request superseded this one while it was in flight — discard the stale result
+    if(!snap){
+      area.innerHTML = '<p class="histempty">No backup found for '+escAttr(dateIso)+'. Backups run once a day, so today\'s (or a future date\'s) may not exist yet — try yesterday or earlier.</p>';
+      return;
+    }
+    area.innerHTML = renderSnapshotOfficeHTML(snap, office, dateIso);
+  }
+
   function renderTipsTab(container){
     let html = '<div class="settings-wrap">';
 
@@ -1572,35 +1647,24 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return list;
   }
   function renderHistoryTab(container){
-    const refDate = state.historyDate || TODAY_ISO;
-    const days = weekRangeFor(refDate);
-
     let html = '<div class="history-wrap">';
 
     html += '<div class="setsection"><h3>History</h3>'
-      + '<p class="setnote">This looks at your current, live data — not a saved snapshot of the past — filtered down to whichever week you pick below. If something\'s been edited since, you\'ll see the updated version here too, not what it said back then. It\'s mainly useful for two things: catching up on a recent day that\'s scrolled out of view on the main tabs, and finding a project again after it\'s been marked complete.</p></div>';
+      + '<p class="setnote">Pick an office and a day below for a true point-in-time snapshot — pulled from the same once-a-day automatic backup that protects against data loss, so it shows exactly what that office looked like when that backup ran, not today\'s current data. Step forward or back a day at a time, or jump straight to a date. Below that, a separate way to find a completed project or search across everything.</p></div>';
 
-    const yesterdayIso = (()=>{ const d=new Date(TODAY_ISO+'T00:00:00'); d.setDate(d.getDate()-1); return isoDate(d); })();
-    const lastWeekIso = (()=>{ const d=new Date(TODAY_ISO+'T00:00:00'); d.setDate(d.getDate()-7); return isoDate(d); })();
-    html += '<div class="setsection"><h3>Look back at a date</h3>'
+    const officeOptions = [{key:'pto', label:state.ptoLabel||'Roster / PTO'}]
+      .concat((state.regionOrder||Object.keys(state.regions)).filter(rk=>state.regions[rk]).map(rk=>({key:rk, label:state.regions[rk].title})));
+    const selectedOffice = state.historySnapshotOffice || 'pto';
+    const snapDate = state.historyDate || TODAY_ISO;
+    html += '<div class="setsection"><h3>Look back at a specific day</h3>'
       + '<div class="hist-quickjump">'
-        + '<button data-histquick="'+TODAY_ISO+'">Today</button>'
-        + '<button data-histquick="'+yesterdayIso+'">Yesterday</button>'
-        + '<button data-histquick="'+TODAY_ISO+'">This week</button>'
-        + '<button data-histquick="'+lastWeekIso+'">Last week</button>'
-        + '<label>Or pick a week: <input type="date" id="historyDateInput" value="'+refDate+'"></label>'
+        + '<label>Office: <select id="snapshotOfficeSelect">'+officeOptions.map(o=>'<option value="'+escAttr(o.key)+'"'+(o.key===selectedOffice?' selected':'')+'>'+escAttr(o.label)+'</option>').join('')+'</select></label>'
+        + '<label>Date: <input type="date" id="snapshotDateInput" value="'+snapDate+'"></label>'
+        + '<button id="snapshotPrevDay" title="Go back one day">◀ Previous day</button>'
+        + '<button id="snapshotNextDay" title="Go forward one day">Next day ▶</button>'
+      + '</div>'
+      + '<div id="snapshotArea"><p class="histempty">Loading…</p></div>'
       + '</div>';
-    let weekBody = '';
-    weekBody += historyTableHTML('PTO', state.employees, days, r=>r.initials+' — '+r.name);
-    Object.keys(state.regions).forEach(rk=>{
-      const reg = state.regions[rk];
-      weekBody += historyTableHTML(reg.title+' — overflow', reg.overflow, days, r=>r.initials+' — '+r.name);
-      reg.blocks.forEach(b=>{
-        const label = b.title + (b.archived ? ' (closed '+b.archivedDate+')' : '');
-        weekBody += historyTableHTML(reg.title+' — '+label, b.rows, days, r=>r.role);
-      });
-    });
-    html += (weekBody || '<p class="histempty">Nothing on record for this week yet.</p>') + '</div>';
 
     const archivedList = allArchivedBlocksList();
     html += '<div class="setsection"><h3>Completed projects</h3>'
@@ -1640,6 +1704,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     }
     html += '</div></div>';
     container.innerHTML = html;
+    loadAndRenderSnapshot();
   }
 
   function render(preserveScroll){
@@ -2345,9 +2410,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
       updateSelectionBar();
       render();
-    } else if(t.id==='historyDateInput'){
+    } else if(t.id==='snapshotOfficeSelect'){
+      state.historySnapshotOffice = t.value;
+      loadAndRenderSnapshot();
+    } else if(t.id==='snapshotDateInput'){
       state.historyDate = t.value;
-      render();
+      loadAndRenderSnapshot();
     } else if(t.matches('#backupFileInput')){
       const file = t.files[0];
       if(file){
@@ -2387,9 +2455,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
       return;
     }
-    if(t.matches('[data-histquick]')){
-      state.historyDate = t.dataset.histquick;
-      render();
+    if(t.matches('#snapshotPrevDay') || t.matches('#snapshotNextDay')){
+      const dir = t.matches('#snapshotPrevDay') ? -1 : 1;
+      const cur = state.historyDate || TODAY_ISO;
+      const d = new Date(cur+'T00:00:00');
+      d.setDate(d.getDate()+dir);
+      state.historyDate = isoDate(d);
+      const dateInput = document.getElementById('snapshotDateInput');
+      if(dateInput) dateInput.value = state.historyDate;
+      loadAndRenderSnapshot();
       return;
     }
     if(t.matches('[data-restoreblock]')){

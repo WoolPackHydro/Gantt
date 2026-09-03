@@ -254,7 +254,8 @@
        around afterward, and (combined with the resize watcher below) the mid-edit
        interruption. Forcing every input to 16px+ stops the zoom from triggering at all. */
     input, textarea, select { font-size:16px !important; }
-    .formula-bar input[type="text"]{width:140px;}
+    .formula-bar input[type="text"]{width:100px;}
+    .formula-bar-label{max-width:80px;min-width:0;}
     .formula-bar{position:relative;}
     .formula-more-toggle{display:inline-flex;}
     .formula-richfmt{display:none;}
@@ -1246,7 +1247,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     const tabWidths = perColWidths[state.activeTab] || {};
     const def = defaultDayColWidth();
     const cols = days.map(d=>(tabWidths[d]||def)+'px').join(' ');
-    if(isMobileViewport()) return '28px '+(nameColWidth||58)+'px '+cols;
+    if(isMobileViewport()) return '28px '+(nameColWidth||75)+'px '+cols;
     return '34px '+(nameColWidth||150)+'px '+cols;
   }
   function gridHeaderHTML(days){

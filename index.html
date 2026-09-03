@@ -871,7 +871,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       regionTitle: found ? found.regionTitle : undefined,
       projectNumber: block.projectNumber || '',
       pm: block.pm || '',
-      phaseManager: block.phaseManager || ''
+      phaseManager: block.phaseManager || '',
+      sensors: block.sensors || '',
+      meta: block.meta || ''
     };
     const existing = state.projectLog.find(e=>e.blockId===block.id);
     if(existing) Object.assign(existing, snapshot);
@@ -2397,7 +2399,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         if(b){
           const propMap = {blocktitle:'title', blockmeta:'meta', blocksensors:'sensors'};
           b[propMap[field]]=t.value;
-          if(field==='blocktitle') trackProjectNaming(b);
+          trackProjectNaming(b);
         }
       }
       else if(field==='blockpm'){ const b=findBlock(id); if(b){ b.pm=t.value; trackProjectNaming(b); } }
@@ -2838,7 +2840,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
             'Project Number': b.projectNumber || '',
             'Status': status,
             'PM': b.pm || '',
-            'Phase Manager': b.phaseManager || ''
+            'Phase Manager': b.phaseManager || '',
+            'Sensors': b.sensors || '',
+            'Notes': b.meta || ''
           };
         }
         // Project no longer found live — either transferred (which assigns a new id) or
@@ -2851,7 +2855,9 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
           'Project Number': e.projectNumber || '',
           'Status': 'Removed from Gantt',
           'PM': e.pm || '',
-          'Phase Manager': e.phaseManager || ''
+          'Phase Manager': e.phaseManager || '',
+          'Sensors': e.sensors || '',
+          'Notes': e.meta || ''
         };
       });
       const rangeLabel = (fromVal||toVal) ? '-'+(fromVal||'start')+'_to_'+(toVal||'now') : '';
@@ -2859,7 +2865,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
       if(window.XLSX){
         const ws = XLSX.utils.json_to_sheet(rows);
-        ws['!cols'] = [{wch:30},{wch:12},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16}];
+        ws['!cols'] = [{wch:30},{wch:12},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:24},{wch:24}];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'New Projects');
         XLSX.writeFile(wb, baseName+'.xlsx');

@@ -202,6 +202,27 @@
   #snapshotModalClose{font-size:14px;padding:5px 10px;}
   .snapshot-modal-badge{font-size:10.5px;color:#5a6472;background:#fff7d6;padding:5px 14px;border-bottom:1px solid #e2d9a8;flex-shrink:0;}
   .snapshot-modal-body{flex:1;display:flex;flex-direction:column;min-height:0;padding:8px;}
+  .trackerinfo-modal{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:5100;display:none;align-items:center;justify-content:center;padding:20px;}
+  .trackerinfo-modal-inner{background:#eef3f5;width:100%;max-width:460px;border-radius:8px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.3);}
+  .trackerinfo-modal-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1c1f22;color:#fff;}
+  .trackerinfo-modal-header span{font-size:13px;font-weight:600;flex:1;}
+  .trackerinfo-modal-header button{font-size:12px;padding:5px 11px;border:1px solid #5a6472;background:#2c2f33;color:#fff;cursor:pointer;border-radius:3px;}
+  .trackerinfo-modal-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto;}
+  .trackerinfo-field label{display:block;font-size:10.5px;color:#5a6472;margin-bottom:3px;}
+  .trackerinfo-field input[type=text]{width:100%;box-sizing:border-box;font-size:12px;padding:5px 7px;border:1px solid #9aa0a6;border-radius:3px;}
+  .trackerinfo-statuses{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:4px;padding-top:10px;border-top:1px solid #d8dee2;}
+  .trackerinfo-statuses label{font-size:11.5px;display:flex;align-items:center;gap:5px;}
+  .tracker-tab-wrap{padding:10px 4px;overflow-x:auto;}
+  .tracker-tab-toolbar{display:flex;align-items:center;gap:14px;margin-bottom:10px;font-size:11.5px;}
+  table.tracker-table{border-collapse:collapse;font-size:11px;width:100%;min-width:1100px;}
+  table.tracker-table th{background:#1c1f22;color:#fff;text-align:left;padding:5px 7px;position:sticky;top:0;white-space:nowrap;}
+  table.tracker-table td{padding:4px 7px;border-bottom:1px solid #dfe3e6;vertical-align:top;}
+  table.tracker-table tr:nth-child(even) td{background:#f5f8f9;}
+  table.tracker-table .trkr-btn{font-size:10.5px;padding:2px 7px;border:1px solid #9aa0a6;background:#fff;cursor:pointer;border-radius:3px;}
+  .tracker-empty-note{font-size:11.5px;color:#5a6472;padding:0 7px 12px;}
+  .tracker-removed-section{margin-top:18px;}
+  .trackerbtn{opacity:.65;color:#1c1f22 !important;}
+  .trackerbtn:hover{opacity:1;}
   .snap-sheetscroll{height:100%;}
   .snap-celltext{display:block;width:100%;color:inherit;font-weight:inherit;text-align:inherit;font-size:inherit;padding:1px 0;box-sizing:border-box;}
   .datehead.snap-centered{outline:2px solid #2f6fb0;outline-offset:-2px;}
@@ -386,7 +407,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
   function getTabs(){
     const order = (state.regionOrder||Object.keys(state.regions)).filter(rk=>state.regions[rk]);
     const regionTabs = order.map(rk => ({id:rk, label: state.regions[rk].title}));
-    return [{id:'pto', label:state.ptoLabel||'PTO'}].concat(regionTabs, [{id:'history', label:'History'}, {id:'tips', label:'Tips & Tricks'}, {id:'settings', label:'Settings'}]);
+    return [{id:'pto', label:state.ptoLabel||'PTO'}].concat(regionTabs, [{id:'tracker', label:'Project Tracker'}, {id:'history', label:'History'}, {id:'tips', label:'Tips & Tricks'}, {id:'settings', label:'Settings'}]);
   }
 
   function isoDate(d){
@@ -605,6 +626,38 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(hit) return hit;
     hit = state.boats.find(b=>b.code && b.code.toLowerCase()===key);
     return hit || null;
+  }
+  // Derives, from the live schedule, which days a project was actually staffed and who/what
+  // worked it — so the Project Tracker tab never needs its own duplicate copy of this data.
+  // Subheader rows (no .cells) are skipped, per the crash pattern documented in
+  // KNOWN_ISSUES_AND_LESSONS.md — any new generic row-iteration code must do this.
+  function deriveBlockStaffing(block){
+    let firstDate=null, lastDate=null;
+    const crewMap = new Map(), vesselMap = new Map();
+    (block.rows||[]).forEach(row=>{
+      if(!row || row.type==='subheader' || !row.cells) return;
+      Object.keys(row.cells).forEach(date=>{
+        const cellObj = row.cells[date];
+        const text = ((cellObj && cellObj.text) || '').trim();
+        if(!text) return;
+        if(!firstDate || date<firstDate) firstDate=date;
+        if(!lastDate || date>lastDate) lastDate=date;
+        text.split('/').forEach(part=>{
+          const key = part.trim().toLowerCase();
+          if(!key || isStatusCodeText(key)) return;
+          const hit = employeeOrBoatByCode(key);
+          if(!hit) return;
+          if(hit.initials!==undefined) crewMap.set(hit.id, hit.initials);
+          else if(hit.code!==undefined) vesselMap.set(hit.id, hit.code);
+        });
+      });
+    });
+    return {
+      firstDate, lastDate,
+      dayCount: firstDate ? (Math.round((new Date(lastDate+'T00:00:00') - new Date(firstDate+'T00:00:00'))/86400000)+1) : 0,
+      crew: Array.from(crewMap.values()).sort(),
+      vessels: Array.from(vesselMap.values()).sort()
+    };
   }
   function findOverflowRowByCode(regionKey, key){
     const reg = state.regions[regionKey];
@@ -873,7 +926,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       pm: block.pm || '',
       phaseManager: block.phaseManager || '',
       sensors: block.sensors || '',
-      meta: block.meta || ''
+      meta: block.meta || '',
+      client: block.client || '',
+      clientContact: block.clientContact || '',
+      surveyType: block.surveyType || '',
+      deliverables: block.deliverables || '',
+      fieldWorkComplete: !!block.fieldWorkComplete,
+      delivered: !!block.delivered,
+      equipmentToFO: !!block.equipmentToFO,
+      invoiced: !!block.invoiced
     };
     const existing = state.projectLog.find(e=>e.blockId===block.id);
     if(existing) Object.assign(existing, snapshot);
@@ -1190,6 +1251,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     return fallbackBg ? ('background:'+fallbackBg+';') : '';
   }
   function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+  // escAttr is only safe inside a quoted attribute (value="..."), which is how it's used
+  // everywhere pre-existing. The new Project Tracker table renders user text as plain HTML
+  // content (inside <td>, not an attribute), where a literal "<" or ">" — very plausible in
+  // a Client Contact field like "Name <email@x.com>" — would vanish or corrupt the row. This
+  // is a real, likely occurrence for the field it's naming, so it gets a proper escape.
+  function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function monthBand(dateStr){
     const dt = new Date(dateStr+'T00:00:00');
@@ -1359,6 +1426,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
         + '<span class="fieldbox"><span class="fieldbox-label">Sensors:</span><input class="bsensors" data-field="blocksensors|'+block.id+'" value="'+escAttr(block.sensors||'')+'"'+wStyle('sensors')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="sensors"></span></span>'
         + '<span class="fieldbox"><span class="fieldbox-label">Notes:</span><input class="bmeta" data-field="blockmeta|'+block.id+'" value="'+escAttr(block.meta||'')+'"'+wStyle('meta')+'><span class="rsz" data-fw-block="'+block.id+'" data-fw-key="meta"></span></span>'
         + '<input type="checkbox" class="blockselect" data-blockselect="'+block.id+'" title="Select for copy/transfer/delete"'+(selectedProjectIds.has(block.id)?' checked':'')+'>'
+        + '<button class="del trackerbtn" data-trackerinfo="'+block.id+'" title="Client, deliverables & invoicing status">📋</button>'
         + '<button class="tablebtn" data-tableblock="'+block.id+'" title="Table for later — hides it here without marking it complete">−</button>'
         + '<button class="del copybtn" data-copyblock="'+block.id+'" title="Copy this whole project — paste it into any section, including a new one">⧉</button>'
         + '<button class="del" data-delblock="'+block.id+'" title="Mark complete and move to History">✕</button></div></div>';
@@ -1709,6 +1777,119 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     renderSnapshotModalContent();
   }
 
+  // ===== Project Tracker: client/invoicing status lives on the project itself, not a
+  // separate duplicated table — see ARCHITECTURE.md-style reasoning: a second copy of this
+  // data is exactly the kind of thing that goes stale (the projectLog/Sensors lesson).
+  // Crew, vessel, and dates are derived live from the schedule via deriveBlockStaffing().
+  let currentTrackerBlockId = null;
+  let trackerFilterUninvoiced = false; // personal view preference, not synced — same treatment as hidePast/historyDate
+  function openTrackerInfoModal(blockId){
+    currentTrackerBlockId = blockId;
+    renderTrackerInfoModalBody();
+    const modal = document.getElementById('trackerInfoModal');
+    if(modal) modal.style.display = 'flex';
+  }
+  function closeTrackerInfoModal(){
+    const modal = document.getElementById('trackerInfoModal');
+    if(modal) modal.style.display = 'none';
+    currentTrackerBlockId = null;
+  }
+  function renderTrackerInfoModalBody(){
+    const body = document.getElementById('trackerInfoModalBody');
+    const label = document.getElementById('trackerInfoModalLabel');
+    if(!body) return;
+    const b = findBlock(currentTrackerBlockId);
+    if(!b){ closeTrackerInfoModal(); return; }
+    if(label) label.textContent = b.title || 'Untitled project';
+    const field = (key,labelText,val) => '<div class="trackerinfo-field"><label>'+escAttr(labelText)+'</label><input type="text" data-field="'+key+'|'+b.id+'" value="'+escAttr(val||'')+'"></div>';
+    const statusBox = (key,labelText) => '<label><input type="checkbox" data-trackerstatus="'+key+'|'+b.id+'"'+(b[key]?' checked':'')+'> '+escAttr(labelText)+'</label>';
+    body.innerHTML = field('blockclient','Client', b.client)
+      + field('blockclientcontact','Client contact', b.clientContact)
+      + field('blocksurveytype','Area / survey type', b.surveyType)
+      + field('blockdeliverables','Deliverables', b.deliverables)
+      + '<div class="trackerinfo-statuses">'
+        + statusBox('fieldWorkComplete','Field work complete')
+        + statusBox('delivered','Delivered')
+        + statusBox('equipmentToFO','Equipment added to F&O')
+        + statusBox('invoiced','Invoiced')
+      + '</div>';
+  }
+
+  function trackerRowHTML(regionTitle, b){
+    const staff = deriveBlockStaffing(b);
+    const dateRange = staff.firstDate ? (staff.firstDate===staff.lastDate ? staff.firstDate : staff.firstDate+' → '+staff.lastDate) : '—';
+    const statusCell = key => '<input type="checkbox" data-trackerstatus="'+key+'|'+b.id+'"'+(b[key]?' checked':'')+'>';
+    return '<tr>'
+      + '<td>'+escHtml(regionTitle)+'</td>'
+      + '<td>'+escHtml(b.title||'Untitled')+'</td>'
+      + '<td>'+escHtml(b.client||'')+'</td>'
+      + '<td>'+escHtml(b.pm||'')+'</td>'
+      + '<td>'+escHtml(b.projectNumber||'')+'</td>'
+      + '<td>'+escHtml(dateRange)+'</td>'
+      + '<td>'+escHtml(staff.crew.join(', '))+'</td>'
+      + '<td>'+escHtml(staff.vessels.join(', '))+'</td>'
+      + '<td>'+statusCell('fieldWorkComplete')+'</td>'
+      + '<td>'+statusCell('delivered')+'</td>'
+      + '<td>'+statusCell('equipmentToFO')+'</td>'
+      + '<td>'+statusCell('invoiced')+'</td>'
+      + '<td><button class="trkr-btn" data-trackerinfo="'+b.id+'">Details</button></td>'
+      + '</tr>';
+  }
+  function trackerTableHTML(rowsHtml){
+    return '<table class="tracker-table"><thead><tr>'
+      + '<th>Office</th><th>Project</th><th>Client</th><th>PM</th><th>Project #</th><th>Dates worked</th><th>Crew</th><th>Vessel</th>'
+      + '<th>Field work</th><th>Delivered</th><th>Equip→F&amp;O</th><th>Invoiced</th><th></th></tr></thead><tbody>'+rowsHtml+'</tbody></table>';
+  }
+  function renderProjectTrackerTab(container){
+    // Three genuinely different states, each needing different treatment:
+    //  - active: still on the live schedule, full staffing detail available.
+    //  - archived-but-not-deleted: marked complete and tucked into "Completed projects" in
+    //    each office, but the block object still fully exists — this is usually exactly the
+    //    moment someone checks "did this get invoiced?", so it must not disappear here just
+    //    because it's no longer on the active board.
+    //  - permanently deleted: the block object is gone entirely; only projectLog's snapshot
+    //    (taken at the last edit to any tracked field) survives, so that's all that's shown.
+    const active = [], archived = [];
+    (state.regionOrder||Object.keys(state.regions)).forEach(rk=>{
+      const reg = state.regions[rk];
+      if(!reg) return;
+      reg.blocks.forEach(b=>{
+        (b.archived ? archived : active).push({regionTitle: reg.title, block: b});
+      });
+    });
+    const applyFilter = list => trackerFilterUninvoiced ? list.filter(r=>!r.block.invoiced) : list;
+    const visibleActive = applyFilter(active);
+    const visibleArchived = applyFilter(archived);
+    let html = '<div class="tracker-tab-wrap">'
+      + '<div class="tracker-tab-toolbar"><label><input type="checkbox" id="trackerFilterUninvoiced"'+(trackerFilterUninvoiced?' checked':'')+'> Show only projects not yet invoiced</label>'
+      + '<span class="info-icon" data-tip="Client, deliverables, and status here are the same fields shown in each project\'s 📋 button — edit either place, they\'re the same data.\n\nCrew, vessel, and dates are pulled automatically from the schedule, not entered separately.">i</span></div>';
+    if(!visibleActive.length){
+      html += '<p class="tracker-empty-note">'+(active.length ? 'No active projects match that filter.' : 'No active projects yet.')+'</p>';
+    } else {
+      html += trackerTableHTML(visibleActive.map(({regionTitle,block:b})=>trackerRowHTML(regionTitle,b)).join(''));
+    }
+    if(archived.length){
+      html += '<div class="tracker-removed-section"><details class="archived-wrap" open><summary>Completed projects ('+archived.length+') — still editable here, e.g. to check off Invoiced later</summary>';
+      html += visibleArchived.length
+        ? trackerTableHTML(visibleArchived.map(({regionTitle,block:b})=>trackerRowHTML(regionTitle,b)).join(''))
+        : '<p class="tracker-empty-note">No completed projects match that filter.</p>';
+      html += '</details></div>';
+    }
+    const deleted = (state.projectLog||[]).filter(e=>!findBlockWithRegion(e.blockId));
+    if(deleted.length){
+      html += '<div class="tracker-removed-section"><details class="archived-wrap"><summary>Permanently deleted ('+deleted.length+') — last known status before deletion</summary>';
+      html += '<table class="tracker-table"><thead><tr><th>Office</th><th>Project</th><th>Client</th><th>PM</th><th>Project #</th><th>Field work</th><th>Delivered</th><th>Equip→F&amp;O</th><th>Invoiced</th></tr></thead><tbody>';
+      deleted.slice().sort((a,b2)=>b2.dateCreated.localeCompare(a.dateCreated)).forEach(e=>{
+        const yn = v => v ? 'Yes' : 'No';
+        html += '<tr><td>'+escHtml(e.regionTitle||'')+'</td><td>'+escHtml(e.name)+'</td><td>'+escHtml(e.client||'')+'</td><td>'+escHtml(e.pm||'')+'</td><td>'+escHtml(e.projectNumber||'')+'</td>'
+          + '<td>'+yn(e.fieldWorkComplete)+'</td><td>'+yn(e.delivered)+'</td><td>'+yn(e.equipmentToFO)+'</td><td>'+yn(e.invoiced)+'</td></tr>';
+      });
+      html += '</tbody></table></details></div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
   function renderTipsTab(container){
     let html = '<div class="settings-wrap">';
 
@@ -1749,6 +1930,12 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
     html += '<div class="tip-step"><h4>6. Copy and paste directly with Excel</h4>'
       + '<p>Select cells in Excel, copy, click into the Gantt, paste — it lands right in place. Works the other direction too, straight back out to Excel.</p>'
+      + '</div>';
+
+    html += '<div class="tip-step"><h4>7. Track client info and invoicing status per project</h4>'
+      + '<p>Click the 📋 on any project header to add its client, client contact, survey type, and deliverables, and to check off field work / delivered / equipment-to-F&O / invoiced as the job progresses.</p>'
+      + '<p>The <b>Project Tracker</b> tab shows every project across every office in one table, so nothing gets forgotten before it\'s billed — crew, vessel, and dates worked are pulled automatically from the schedule itself, not re-typed. Even a completed or removed project keeps its last-known status there.</p>'
+      + '<div class="tip-mock"><div class="tip-mock-row"><span class="tip-mock-btn">📋</span><span class="tip-mock-arrow">→</span><span class="tip-mock-tag">Client</span><span class="tip-mock-tag">Delivered ☑</span><span class="tip-mock-tag">Invoiced ☐</span></div></div>'
       + '</div>';
 
     html += '<div class="setsection"><h3>More features</h3>'
@@ -1853,6 +2040,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(state.activeTab==='settings') renderSettingsTab(c);
     else if(state.activeTab==='pto') renderPTOTab(c);
     else if(state.activeTab==='history') renderHistoryTab(c);
+    else if(state.activeTab==='tracker') renderProjectTrackerTab(c);
     else if(state.activeTab==='tips') renderTipsTab(c);
     else renderRegionTab(c, state.activeTab);
     if(preserveScroll!==false){
@@ -2394,10 +2582,10 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       scheduleSave();
     } else if(t.matches('[data-field]')){
       const [field,id]=t.dataset.field.split('|');
-      if(field==='blocktitle'||field==='blockmeta'||field==='blocksensors'){
+      if(field==='blocktitle'||field==='blockmeta'||field==='blocksensors'||field==='blockclient'||field==='blockclientcontact'||field==='blocksurveytype'||field==='blockdeliverables'){
         const b=findBlock(id);
         if(b){
-          const propMap = {blocktitle:'title', blockmeta:'meta', blocksensors:'sensors'};
+          const propMap = {blocktitle:'title', blockmeta:'meta', blocksensors:'sensors', blockclient:'client', blockclientcontact:'clientContact', blocksurveytype:'surveyType', blockdeliverables:'deliverables'};
           b[propMap[field]]=t.value;
           trackProjectNaming(b);
         }
@@ -2580,6 +2768,14 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       setOverflowConflictWarningsEnabled(t.checked);
     } else if(t.id==='doubleBookConflictToggle'){
       setDoubleBookWarningsEnabled(t.checked);
+    } else if(t.id==='trackerFilterUninvoiced'){
+      trackerFilterUninvoiced = t.checked;
+      render();
+    } else if(t.matches('[data-trackerstatus]')){
+      const [field,id] = t.dataset.trackerstatus.split('|');
+      const b = findBlock(id);
+      if(b){ b[field] = t.checked; trackProjectNaming(b); }
+      render(); scheduleSave();
     } else if(t.matches('[data-blockselect]')){
       const id = t.dataset.blockselect;
       if(t.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
@@ -2751,26 +2947,36 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
       }
       return;
     }
+    if(t.matches('[data-trackerinfo]')){
+      openTrackerInfoModal(t.dataset.trackerinfo);
+      return;
+    }
     if(t.matches('[data-addrow-block]')){ const b=findBlock(t.dataset.addrowBlock); if(b){ pushUndo(); b.rows.push({id:newId(),role:'New role',cells:{}}); } render(); scheduleSave(); return; }
     if(t.matches('[data-addsubhead-block]')){ const b=findBlock(t.dataset.addsubheadBlock); if(b){ pushUndo(); b.rows.push({id:newId(),type:'subheader',label:'New sub-group'}); } render(); scheduleSave(); return; }
     if(t.matches('[data-addblock-region]')){
       const rk=t.dataset.addblockRegion;
       pushUndo();
-      state.regions[rk].blocks.push({id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]});
-      render(); scheduleSave(); return;
+      const newBlock = {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]};
+      state.regions[rk].blocks.push(newBlock);
+      render(); scheduleSave();
+      openTrackerInfoModal(newBlock.id); // optional — fields are blank and skippable, doesn't block just getting a project on the board fast
+      return;
     }
     if(t.matches('[data-addblock-after]')){
       const afterId = t.dataset.addblockAfter;
       pushUndo();
+      const newBlock = {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]};
       for(const rk of Object.keys(state.regions)){
         const blocks = state.regions[rk].blocks;
         const idx = blocks.findIndex(b=>b.id===afterId);
         if(idx!==-1){
-          blocks.splice(idx+1, 0, {id:newId(),title:'New project',meta:'',rows:[{id:newId(),role:'Surveyor',cells:{}},{id:newId(),role:'Operator',cells:{}},{id:newId(),role:'Vessel',cells:{}},{id:newId(),role:'Processor',cells:{}}]});
+          blocks.splice(idx+1, 0, newBlock);
           break;
         }
       }
-      render(); scheduleSave(); return;
+      render(); scheduleSave();
+      openTrackerInfoModal(newBlock.id);
+      return;
     }
     if(t.matches('[data-addoverflow-region]')){
       const rk=t.dataset.addoverflowRegion;
@@ -2842,7 +3048,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
             'PM': b.pm || '',
             'Phase Manager': b.phaseManager || '',
             'Sensors': b.sensors || '',
-            'Notes': b.meta || ''
+            'Notes': b.meta || '',
+            'Client': b.client || '',
+            'Client Contact': b.clientContact || '',
+            'Field Work Complete': b.fieldWorkComplete ? 'Yes' : 'No',
+            'Delivered': b.delivered ? 'Yes' : 'No',
+            'Equipment to F&O': b.equipmentToFO ? 'Yes' : 'No',
+            'Invoiced': b.invoiced ? 'Yes' : 'No'
           };
         }
         // Project no longer found live — either transferred (which assigns a new id) or
@@ -2857,7 +3069,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
           'PM': e.pm || '',
           'Phase Manager': e.phaseManager || '',
           'Sensors': e.sensors || '',
-          'Notes': e.meta || ''
+          'Notes': e.meta || '',
+          'Client': e.client || '',
+          'Client Contact': e.clientContact || '',
+          'Field Work Complete': e.fieldWorkComplete ? 'Yes' : 'No',
+          'Delivered': e.delivered ? 'Yes' : 'No',
+          'Equipment to F&O': e.equipmentToFO ? 'Yes' : 'No',
+          'Invoiced': e.invoiced ? 'Yes' : 'No'
         };
       });
       const rangeLabel = (fromVal||toVal) ? '-'+(fromVal||'start')+'_to_'+(toVal||'now') : '';
@@ -2865,7 +3083,7 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
 
       if(window.XLSX){
         const ws = XLSX.utils.json_to_sheet(rows);
-        ws['!cols'] = [{wch:30},{wch:12},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:24},{wch:24}];
+        ws['!cols'] = [{wch:30},{wch:12},{wch:16},{wch:16},{wch:16},{wch:16},{wch:16},{wch:24},{wch:24},{wch:20},{wch:20},{wch:14},{wch:12},{wch:14},{wch:12}];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'New Projects');
         XLSX.writeFile(wb, baseName+'.xlsx');
@@ -3139,7 +3357,13 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     if(e.key==='Escape'){
       const modal = document.getElementById('snapshotModal');
       if(modal && modal.style.display!=='none') closeSnapshotModal();
+      const trackerModal = document.getElementById('trackerInfoModal');
+      if(trackerModal && trackerModal.style.display!=='none') closeTrackerInfoModal();
     }
+  });
+  document.getElementById('trackerInfoModalClose').addEventListener('click', closeTrackerInfoModal);
+  document.getElementById('trackerInfoModal').addEventListener('click', e=>{
+    if(e.target.id==='trackerInfoModal') closeTrackerInfoModal();
   });
   document.getElementById('snapshotModalPrevDay').addEventListener('click', ()=> snapshotModalNavDay(-1));
   document.getElementById('snapshotModalNextDay').addEventListener('click', ()=> snapshotModalNavDay(1));
@@ -3311,6 +3535,15 @@ const STATE_PATH = 'ganttState'; // everything lives under this one node in Real
     </div>
     <div class="snapshot-modal-badge">Read-only — a snapshot from the daily backup, reflecting the <b>end</b> of the day shown above (saved just after midnight in Alaska, the last office to close out each day). Scroll in any direction to look around.</div>
     <div id="snapshotModalBody" class="snapshot-modal-body"></div>
+  </div>
+</div>
+<div class="trackerinfo-modal" id="trackerInfoModal" style="display:none">
+  <div class="trackerinfo-modal-inner">
+    <div class="trackerinfo-modal-header">
+      <span id="trackerInfoModalLabel"></span>
+      <button id="trackerInfoModalClose" title="Close">✕ Close</button>
+    </div>
+    <div id="trackerInfoModalBody" class="trackerinfo-modal-body"></div>
   </div>
 </div>
 </body>
